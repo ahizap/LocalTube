@@ -133,6 +133,7 @@ onMounted(async () => {
   }
 
   await fetchTasks()
+  await fetchLibraryFolders()
   taskPollingInterval = setInterval(fetchTasks, 1500)
 })
 
@@ -166,6 +167,32 @@ const taskStatusIcon = (status) => {
     case 'error': return '❌'
     default: return '❓'
   }
+}
+
+// Library Management
+const libraryFolders = ref([])
+
+const fetchLibraryFolders = async () => {
+  try {
+    libraryFolders.value = await api.getLibraryFolders()
+  } catch (e) {
+    console.error('Failed to fetch library folders:', e)
+  }
+}
+
+const removeFolder = async (folderPath) => {
+  if (!confirm(`Remove all scanned videos from:\n${folderPath}\n\nThis deletes cached thumbnails/previews but NOT the original video files.`)) return
+  try {
+    await api.deleteFolder(folderPath)
+    await fetchLibraryFolders()
+  } catch (e) {
+    alert('Failed to remove folder: ' + e.message)
+  }
+}
+
+const folderName = (path) => {
+  const parts = path.replace(/\\/g, '/').split('/').filter(p => p)
+  return parts.pop() || path
 }
 
 </script>
@@ -303,6 +330,35 @@ const taskStatusIcon = (status) => {
             v-model="settings.preview_audio" 
             @change="saveSetting('preview_audio', settings.preview_audio)"
           />
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <div class="section-header">
+          <div>
+            <h2>Scanned Library</h2>
+            <p class="text-secondary" style="margin-bottom: 0;">Folders currently in your library. Removing a folder deletes cached thumbnails and previews, not the original files.</p>
+          </div>
+          <button class="btn-text" @click="fetchLibraryFolders" title="Refresh">🔄 Refresh</button>
+        </div>
+
+        <div v-if="libraryFolders.length === 0" class="empty-library">
+          No folders scanned yet. Use the scan buttons above to add videos.
+        </div>
+
+        <div v-else class="library-folder-list">
+          <div v-for="folder in libraryFolders" :key="folder.path" class="library-folder-item">
+            <div class="library-folder-info">
+              <span class="library-folder-name" :title="folder.path">📁 {{ folderName(folder.path) }}</span>
+              <span class="library-folder-path">{{ folder.path }}</span>
+              <div class="library-folder-stats">
+                <span>{{ folder.count }} videos</span>
+                <span v-if="folder.has_thumbs">• {{ folder.has_thumbs }} thumbs</span>
+                <span v-if="folder.has_previews">• {{ folder.has_previews }} previews</span>
+              </div>
+            </div>
+            <button class="btn-remove" @click="removeFolder(folder.path)" title="Remove folder from library">🗑️ Remove</button>
+          </div>
         </div>
       </section>
     </div>
@@ -889,5 +945,92 @@ button {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+/* ===== Library Management ===== */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.empty-library {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 24px;
+  text-align: center;
+}
+
+.library-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.library-folder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--bg-color);
+  padding: 12px 16px;
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-color);
+  transition: border-color 0.15s;
+}
+
+.library-folder-item:hover {
+  border-color: var(--text-secondary);
+}
+
+.library-folder-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.library-folder-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.library-folder-path {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-folder-stats {
+  display: flex;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.btn-remove {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.btn-remove:hover {
+  color: #ff4d4f;
+  border-color: #ff4d4f;
+  background-color: rgba(255, 77, 79, 0.1);
 }
 </style>

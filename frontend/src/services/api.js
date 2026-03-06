@@ -33,6 +33,18 @@ export default {
         const res = await api.get(`/fs/list?path=${encodeURIComponent(path)}`);
         return res.data;
     },
+    async getLibraryFolders() {
+        const res = await api.get('/library/folders');
+        return res.data;
+    },
+    async deleteVideo(videoId) {
+        const res = await api.delete(`/library/videos/${videoId}`);
+        return res.data;
+    },
+    async deleteFolder(folderPath) {
+        const res = await api.delete(`/library/folders?folder=${encodeURIComponent(folderPath)}`);
+        return res.data;
+    },
     async getVideos() {
         const res = await api.get('/videos');
         return res.data;

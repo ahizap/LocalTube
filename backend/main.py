@@ -89,6 +89,66 @@ def clear_finished_tasks():
     task_queue.clear_finished()
     return {"status": "ok"}
 
+# === Library Management ===
+
+@app.get("/api/library/folders")
+def get_library_folders(db: Session = Depends(get_db)):
+    """Returns scanned folders grouped by parent directory with file counts."""
+    videos = db.query(models.Video).all()
+    folder_map = {}
+    for v in videos:
+        folder = os.path.dirname(v.path)
+        if folder not in folder_map:
+            folder_map[folder] = {"path": folder, "count": 0, "has_thumbs": 0, "has_previews": 0}
+        folder_map[folder]["count"] += 1
+        if v.thumbnail_path:
+            folder_map[folder]["has_thumbs"] += 1
+        if v.preview_path:
+            folder_map[folder]["has_previews"] += 1
+    
+    folders = sorted(folder_map.values(), key=lambda x: x["path"])
+    return folders
+
+@app.delete("/api/library/videos/{video_id}")
+def delete_video(video_id: int, db: Session = Depends(get_db)):
+    """Delete a single video from the library and remove its cached files."""
+    video = db.query(models.Video).filter(models.Video.id == video_id).first()
+    if not video:
+        return {"status": "error", "message": "Video not found"}
+    
+    # Remove cached files
+    for cache_path in [video.thumbnail_path, video.preview_path]:
+        if cache_path and os.path.exists(cache_path):
+            try:
+                os.remove(cache_path)
+            except OSError:
+                pass
+    
+    db.delete(video)
+    db.commit()
+    return {"status": "ok"}
+
+@app.delete("/api/library/folders")
+def delete_folder(folder: str, db: Session = Depends(get_db)):
+    """Delete all videos in a folder from the library and remove their cached files."""
+    videos = db.query(models.Video).filter(models.Video.path.like(f"{folder}%")).all()
+    if not videos:
+        return {"status": "error", "message": "No videos found in this folder"}
+    
+    removed = 0
+    for video in videos:
+        for cache_path in [video.thumbnail_path, video.preview_path]:
+            if cache_path and os.path.exists(cache_path):
+                try:
+                    os.remove(cache_path)
+                except OSError:
+                    pass
+        db.delete(video)
+        removed += 1
+    
+    db.commit()
+    return {"status": "ok", "removed": removed}
+
 import ctypes
 
 @app.get("/api/fs/list")

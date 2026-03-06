@@ -1,8 +1,11 @@
 @echo off
-echo Starting YouTube-like Tube Site Backend Server...
-start cmd /k "cd backend && call venv\Scripts\activate.bat && uvicorn main:app --port 8080 --reload"
+:: Get the directory where this script lives
+set "ROOT=%~dp0"
 
-echo Starting Vue.js Frontend Development Server...
-start cmd /k "cd frontend && npm run dev"
+echo Starting Backend Server...
+start "Backend" cmd /k "cd /d %ROOT%backend && call venv\Scripts\activate.bat && uvicorn main:app --port 8080 --reload"
 
-echo Both servers are starting in separate windows...
+echo Starting Frontend Dev Server...
+start "Frontend" cmd /k "cd /d %ROOT%frontend && npm run dev"
+
+echo Both servers are starting in separate windows.
