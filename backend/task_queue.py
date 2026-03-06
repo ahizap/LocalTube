@@ -122,9 +122,6 @@ class TaskQueue:
             thumb_pct_setting = db.query(Setting).filter(Setting.key == "thumbnail_percentage").first()
             thumb_pct = float(thumb_pct_setting.value) if thumb_pct_setting else 5.0
 
-            skip_scanned_setting = db.query(Setting).filter(Setting.key == "skip_scanned").first()
-            skip_scanned = skip_scanned_setting.value == "true" if skip_scanned_setting else True
-
             preview_segments_setting = db.query(Setting).filter(Setting.key == "preview_segments").first()
             preview_segments = int(preview_segments_setting.value) if preview_segments_setting else 10
 
@@ -149,8 +146,9 @@ class TaskQueue:
 
             task.total = len(file_list)
             task.current = 0
+            skipped = 0
 
-            # Second pass: process
+            # Second pass: process files, intelligently skipping already-processed ones
             for full_path in file_list:
                 if task.cancel_flag:
                     task.status = "cancelled"
@@ -158,21 +156,32 @@ class TaskQueue:
 
                 task.current_file = full_path
 
+                # Check if this file already has the requested asset
                 existing = db.query(Video).filter(Video.path == full_path).first()
-                if existing and skip_scanned:
+                if existing:
                     has_thumb = bool(existing.thumbnail_path and os.path.exists(existing.thumbnail_path))
                     has_preview = bool(existing.preview_path and os.path.exists(existing.preview_path))
 
-                    if (task.scan_type == "all" and has_thumb and has_preview) or \
-                       (task.scan_type == "thumbnail" and has_thumb) or \
-                       (task.scan_type == "preview" and has_preview):
+                    should_skip = False
+                    if task.scan_type == "thumbnail" and has_thumb:
+                        should_skip = True
+                    elif task.scan_type == "preview" and has_preview:
+                        should_skip = True
+                    elif task.scan_type == "all" and has_thumb and has_preview:
+                        should_skip = True
+
+                    if should_skip:
                         task.current += 1
+                        skipped += 1
                         continue
 
                 print(f"[Task {task.id}] Processing ({task.scan_type}): {full_path}")
                 process_video_file(db, full_path, thumb_pct, preview_segments,
                                    preview_duration, preview_audio, task.scan_type)
                 task.current += 1
+
+            if skipped > 0:
+                print(f"[Task {task.id}] Skipped {skipped}/{task.total} files (already processed)")
 
             if not task.cancel_flag:
                 task.status = "completed"

@@ -40,7 +40,6 @@ def get_settings(db: Session = Depends(get_db)):
         "preview_segments": 10,
         "preview_duration": 2.0,
         "preview_audio": True,
-        "skip_scanned": True,
         "default_browse_path": "",
         "max_concurrent_tasks": 2
     }

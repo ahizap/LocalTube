@@ -113,7 +113,6 @@ const settings = ref({
   preview_segments: 10,
   preview_duration: 2.0,
   preview_audio: true,
-  skip_scanned: true,
   default_browse_path: '',
   max_concurrent_tasks: 2
 })
@@ -303,15 +302,6 @@ const taskStatusIcon = (status) => {
             type="checkbox" 
             v-model="settings.preview_audio" 
             @change="saveSetting('preview_audio', settings.preview_audio)"
-          />
-        </div>
-        
-        <div class="setting-row toggle-row" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
-          <label>Skip Already Scanned Files</label>
-          <input 
-            type="checkbox" 
-            v-model="settings.skip_scanned" 
-            @change="saveSetting('skip_scanned', settings.skip_scanned)"
           />
         </div>
       </section>
