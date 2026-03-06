@@ -24,7 +24,12 @@ const handleMouseEnter = () => {
   isHovered.value = true
   if (videoPlayer.value && props.video.preview_path) {
     videoPlayer.value.currentTime = 0
-    videoPlayer.value.play().catch(e => console.log('Autoplay prevented:', e))
+    videoPlayer.value.muted = false
+    videoPlayer.value.play().catch(e => {
+      console.log('Autoplay prevented, falling back to muted:', e)
+      videoPlayer.value.muted = true
+      videoPlayer.value.play().catch(err => console.log('Muted autoplay also prevented:', err))
+    })
   }
 }
 
@@ -71,7 +76,6 @@ const getMediaUrl = (path) => {
         :src="getMediaUrl(video.preview_path)"
         class="preview-video"
         loop
-        muted
         playsinline
       ></video>
       

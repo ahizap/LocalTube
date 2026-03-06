@@ -87,24 +87,27 @@ def generate_preview(video_path: str, output_path: str, duration: float,
             
     # Concatenate the filtered inputs
     concat_inputs = "".join([f"[v{i}]" + (f"[a{i}]" if include_audio else "") for i in range(segments)])
-    filter_complex += f"{concat_inputs}concat=n={segments}:v=1:a={1 if include_audio else 0}[outv]"
     if include_audio:
-        filter_complex += "[outa]"
+        filter_complex += f"{concat_inputs}concat=n={segments}:v=1:a=1[outv][outa]"
+    else:
+        filter_complex += f"{concat_inputs}concat=n={segments}:v=1:a=0[outv]"
         
     cmd = ["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[outv]"]
     
     if include_audio:
-        cmd.extend(["-map", "[outa]"])
+        cmd.extend(["-map", "[outa]", "-c:a", "aac"])
         
     cmd.extend([
         "-c:v", "libx264", 
-        "-preset", "fast",
+        "-preset", "slow",
         "-crf", "28", # Decent compression for preview
         output_path
     ])
     
+    print(f"[DEBUG] FFmpeg command: {' '.join(cmd)}")
+    
     try:
-        subprocess.run(cmd, capture_output=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, check=True)
         return True
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg error generating preview: {e.stderr}")
@@ -118,7 +121,8 @@ def _get_hash(path: str):
     return hashlib.md5(path.encode()).hexdigest()
 
 def process_video_file(db: Session, video_path: str, thumbnail_percentage: float = 5.0, 
-                       preview_segments: int = 10, preview_duration: float = 2.0, preview_audio: bool = False):
+                       preview_segments: int = 10, preview_duration: float = 2.0, preview_audio: bool = False,
+                       scan_type: str = "all"):
     
     print(f"Extracting metadata for {video_path}")
     metadata = get_video_metadata(video_path)
@@ -135,11 +139,13 @@ def process_video_file(db: Session, video_path: str, thumbnail_percentage: float
     thumb_path = os.path.join(cache_dir, f"{file_hash}_thumb.jpg")
     preview_vid_path = os.path.join(cache_dir, f"{file_hash}_preview.mp4")
     
-    print(f"Generating thumbnail at {thumbnail_percentage}%...")
-    generate_thumbnail(video_path, thumb_path, duration, percentage=thumbnail_percentage)
+    if scan_type in ("all", "thumbnail"):
+        print(f"Generating thumbnail at {thumbnail_percentage}%...")
+        generate_thumbnail(video_path, thumb_path, duration, percentage=thumbnail_percentage)
     
-    print(f"Generating dynamic preview...")
-    generate_preview(video_path, preview_vid_path, duration, segments=preview_segments, segment_duration=preview_duration, include_audio=preview_audio)
+    if scan_type in ("all", "preview"):
+        print(f"Generating dynamic preview...")
+        generate_preview(video_path, preview_vid_path, duration, segments=preview_segments, segment_duration=preview_duration, include_audio=preview_audio)
     
     # Save to db
     video = db.query(Video).filter(Video.path == video_path).first()
@@ -148,8 +154,11 @@ def process_video_file(db: Session, video_path: str, thumbnail_percentage: float
         db.add(video)
         
     video.duration = duration
-    video.thumbnail_path = thumb_path if os.path.exists(thumb_path) else None
-    video.preview_path = preview_vid_path if os.path.exists(preview_vid_path) else None
+    
+    if os.path.exists(thumb_path):
+        video.thumbnail_path = thumb_path
+    if os.path.exists(preview_vid_path):
+        video.preview_path = preview_vid_path
     
     db.commit()
     db.refresh(video)

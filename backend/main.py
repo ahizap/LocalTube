@@ -40,8 +40,9 @@ def get_settings(db: Session = Depends(get_db)):
         "thumbnail_percentage": 5.0,
         "preview_segments": 10,
         "preview_duration": 2.0,
-        "preview_audio": False,
-        "skip_scanned": True
+        "preview_audio": True,
+        "skip_scanned": True,
+        "default_browse_path": ""
     }
     for s in settings:
         try:
@@ -63,12 +64,12 @@ def save_setting(key: str, value: str, db: Session = Depends(get_db)):
     return {"status": "ok", "key": key}
 
 @app.post("/api/scan")
-def trigger_scan(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Triggers a background scan of all directories."""
+def trigger_scan(background_tasks: BackgroundTasks, type: str = "all", db: Session = Depends(get_db)):
+    """Triggers a background scan of all directories. type can be 'all', 'thumbnail', or 'preview'"""
     if scanner.is_scanning:
         return {"status": "Scan already in progress"}
-    background_tasks.add_task(scanner.scan_directories, db)
-    return {"status": "Scan started in background"}
+    background_tasks.add_task(scanner.scan_directories, db, type)
+    return {"status": f"Scan '{type}' started in background"}
 
 @app.get("/api/scan/progress")
 def get_scan_progress():
@@ -82,6 +83,54 @@ def cancel_scan():
         return {"status": "No scan in progress"}
     scanner.cancel_scan_flag = True
     return {"status": "Scan cancellation requested"}
+
+import ctypes
+
+@app.get("/api/fs/list")
+def list_directory(path: str = ""):
+    """Lists contents of a directory. Returns directories only to build a file explorer."""
+    # Handle Windows drives
+    is_windows = os.name == 'nt'
+    if not path and is_windows:
+        drives = []
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            if bitmask & 1:
+                drives.append({"name": f"{letter}:\\", "path": f"{letter}:\\"})
+            bitmask >>= 1
+        return {"path": "", "parent": "", "directories": drives, "is_root": True}
+
+    if not path and not is_windows:
+        path = "/"
+        
+    if not os.path.exists(path) or not os.path.isdir(path):
+        return {"error": "Path is not a valid directory"}
+        
+    try:
+        items = os.listdir(path)
+        directories = []
+        for item in items:
+            full_path = os.path.join(path, item)
+            if os.path.isdir(full_path):
+                directories.append({"name": item, "path": full_path})
+                
+        # Sort directories alphabetically
+        directories.sort(key=lambda x: x["name"].lower())
+        
+        parent_path = os.path.dirname(path)
+        if parent_path == path: # we're at root
+             parent_path = "" if is_windows else "/"
+             
+        return {
+            "path": path,
+            "parent": parent_path,
+            "directories": directories,
+            "is_root": parent_path == ""
+        }
+    except PermissionError:
+        return {"error": "Permission denied"}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/api/videos")
 def get_videos(db: Session = Depends(get_db), skip: int = 0, limit: int = 100):
@@ -146,7 +195,15 @@ def stream_video(video_id: int, request: Request, db: Session = Depends(get_db))
         def file_iterator():
             with open(file_path, "rb") as f:
                 f.seek(byte1)
-                yield f.read(length)
+                remaining = length
+                chunk_size = 1024 * 1024 # 1 MB chunks
+                while remaining > 0:
+                    read_size = min(chunk_size, remaining)
+                    data = f.read(read_size)
+                    if not data:
+                        break
+                    yield data
+                    remaining -= len(data)
                 
         headers = {
             'Content-Range': f'bytes {byte1}-{byte2}/{file_size}',

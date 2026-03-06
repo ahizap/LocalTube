@@ -27,7 +27,7 @@ def get_directories(db: Session):
     except:
         return []
 
-def scan_directories(db: Session):
+def scan_directories(db: Session, scan_type: str = "all"):
     global is_scanning, cancel_scan_flag, scan_progress
     
     if is_scanning:
@@ -51,6 +51,15 @@ def scan_directories(db: Session):
         
         skip_scanned_setting = db.query(Setting).filter(Setting.key == "skip_scanned").first()
         skip_scanned = skip_scanned_setting.value == "true" if skip_scanned_setting else True
+        
+        preview_segments_setting = db.query(Setting).filter(Setting.key == "preview_segments").first()
+        preview_segments = int(preview_segments_setting.value) if preview_segments_setting else 10
+        
+        preview_duration_setting = db.query(Setting).filter(Setting.key == "preview_duration").first()
+        preview_duration = float(preview_duration_setting.value) if preview_duration_setting else 2.0
+        
+        preview_audio_setting = db.query(Setting).filter(Setting.key == "preview_audio").first()
+        preview_audio = preview_audio_setting.value == "true" if preview_audio_setting else True
     
         # First pass: count total valid files
         total_files = 0
@@ -87,12 +96,22 @@ def scan_directories(db: Session):
             # Check if exists
             existing = db.query(Video).filter(Video.path == full_path).first()
             
-            if existing and skip_scanned:
-                scan_progress["current"] += 1
-                continue # Already in DB and we are skipping
+            if existing and skip_scanned and scan_type == "all":
+                # Only strictly skip if we're doing "all" AND skip_scanned is true.
+                # If the user explicitly asks for "thumbnail" or "preview", we should probably 
+                # generate them if they don't exist, even if the video DB entry exists.
+                # Actually, let's refine: skip if it exists and we already have the requested asset.
+                has_thumb = bool(existing.thumbnail_path and os.path.exists(existing.thumbnail_path))
+                has_preview = bool(existing.preview_path and os.path.exists(existing.preview_path))
                 
-            print(f"Processing new video: {full_path}")
-            process_video_file(db, full_path, thumb_pct)
+                if (scan_type == "all" and has_thumb and has_preview) or \
+                   (scan_type == "thumbnail" and has_thumb) or \
+                   (scan_type == "preview" and has_preview):
+                    scan_progress["current"] += 1
+                    continue
+                
+            print(f"Processing video ({scan_type}): {full_path}")
+            process_video_file(db, full_path, thumb_pct, preview_segments, preview_duration, preview_audio, scan_type)
             scan_progress["current"] += 1
             
         if not cancel_scan_flag:

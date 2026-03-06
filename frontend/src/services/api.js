@@ -13,8 +13,12 @@ export default {
         const res = await api.post(`/settings?key=${encodeURIComponent(key)}&value=${encodeURIComponent(JSON.stringify(value))}`);
         return res.data;
     },
-    async triggerScan() {
-        const res = await api.post('/scan');
+    async triggerScan(type = "all") {
+        const res = await api.post(`/scan?type=${encodeURIComponent(type)}`);
+        return res.data;
+    },
+    async listDirectory(path = "") {
+        const res = await api.get(`/fs/list?path=${encodeURIComponent(path)}`);
         return res.data;
     },
     async getScanProgress() {

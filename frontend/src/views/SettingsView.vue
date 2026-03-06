@@ -14,6 +14,45 @@ const scanProgress = ref({
 })
 let scanPollingInterval = null
 
+// File Explorer State
+const showFileExplorer = ref(false)
+const explorerPath = ref('')
+const explorerParent = ref('')
+const explorerDirectories = ref([])
+const explorerLoading = ref(false)
+
+const openFileExplorer = async () => {
+  showFileExplorer.value = true
+  await fetchDirectory(settings.value.default_browse_path || '')
+}
+
+const closeFileExplorer = () => {
+  showFileExplorer.value = false
+}
+
+const fetchDirectory = async (path) => {
+  explorerLoading.value = true
+  try {
+    const data = await api.listDirectory(path)
+    if (data.error) {
+      alert("Error: " + data.error)
+    } else {
+      explorerPath.value = data.path
+      explorerParent.value = data.parent
+      explorerDirectories.value = data.directories || []
+    }
+  } catch (e) {
+    alert("Failed to list directory: " + e.message)
+  } finally {
+    explorerLoading.value = false
+  }
+}
+
+const selectExplorerPath = () => {
+  newDirectory.value = explorerPath.value
+  closeFileExplorer()
+}
+
 const checkScanProgress = async () => {
   try {
     const data = await api.getScanProgress()
@@ -27,8 +66,9 @@ const settings = ref({
   thumbnail_percentage: 5.0,
   preview_segments: 10,
   preview_duration: 2.0,
-  preview_audio: false,
-  skip_scanned: true
+  preview_audio: true,
+  skip_scanned: true,
+  default_browse_path: ''
 })
 
 onMounted(async () => {
@@ -79,9 +119,9 @@ const saveSetting = async (key, value) => {
   await api.saveSetting(key, value)
 }
 
-const triggerScan = async () => {
+const triggerScan = async (type = 'all') => {
   try {
-    await api.triggerScan()
+    await api.triggerScan(type)
     await checkScanProgress()
   } catch (e) {
     alert("Failed to start scan: " + e.message)
@@ -117,10 +157,13 @@ const cancelScan = async () => {
 
       <div v-else-if="scanProgress.status === 'error'" class="scan-error">
         Error: {{ scanProgress.current_file }}
-        <button class="btn-primary" @click="triggerScan" style="margin-left: 10px;">Retry Scan</button>
+        <button class="btn-primary" @click="triggerScan('all')" style="margin-left: 10px;">Retry Scan</button>
       </div>
 
-      <button v-else class="btn-primary" @click="triggerScan">Scan Now</button>
+      <div v-else class="button-group">
+        <button class="btn-primary" @click="triggerScan('thumbnail')">Scan files & Generate thumbnails</button>
+        <button class="btn-secondary" @click="triggerScan('preview')">Generate Previews</button>
+      </div>
     </div>
     
     <div class="settings-container">
@@ -142,8 +185,27 @@ const cancelScan = async () => {
             placeholder="Absolute path to folder (e.g. C:\Videos or /home/user/videos)"
             class="input-field"
           />
-          <button type="submit" class="btn-secondary">Add Folder</button>
+          <button type="button" class="btn-secondary" @click="openFileExplorer">Browse...</button>
+          <button type="submit" class="btn-primary">Add Folder</button>
         </form>
+      </section>
+
+      <section class="settings-section">
+        <h2>General</h2>
+        
+        <div class="setting-row">
+          <label>Default Browse Path</label>
+          <div class="input-group">
+            <input 
+              type="text" 
+              v-model="settings.default_browse_path" 
+              @change="saveSetting('default_browse_path', settings.default_browse_path)"
+              class="input-field"
+              placeholder="e.g. C:\ or /home/user"
+            />
+            <span class="hint">The starting path when clicking "Browse...".</span>
+          </div>
+        </div>
       </section>
 
       <section class="settings-section">
@@ -210,6 +272,41 @@ const cancelScan = async () => {
     </div>
   </div>
   <div v-else class="loading">Loading settings...</div>
+
+  <!-- Custom File Explorer Modal -->
+  <div class="modal-overlay" v-if="showFileExplorer" @click.self="closeFileExplorer">
+    <div class="modal-content file-explorer">
+      <div class="explorer-header">
+        <h2>Select Folder</h2>
+        <button class="btn-close" @click="closeFileExplorer">&times;</button>
+      </div>
+      
+      <div class="explorer-path-bar">
+        <span class="path-label">Current:</span>
+        <span class="current-path">{{ explorerPath || 'Root / Drives' }}</span>
+      </div>
+
+      <div class="explorer-body">
+        <div v-if="explorerLoading" class="explorer-loading">Loading...</div>
+        <ul v-else class="directory-list-view">
+          <li v-if="explorerPath" class="directory-list-item back-item" @click="fetchDirectory(explorerParent)">
+            <span class="icon">📁</span> ..
+          </li>
+          <li v-for="dir in explorerDirectories" :key="dir.path" class="directory-list-item" @click="fetchDirectory(dir.path)">
+            <span class="icon">📁</span> {{ dir.name }}
+          </li>
+          <li v-if="explorerDirectories.length === 0 && explorerPath" class="directory-list-item empty-dir">
+            No subdirectories
+          </li>
+        </ul>
+      </div>
+
+      <div class="explorer-footer">
+        <button class="btn-secondary" @click="closeFileExplorer">Cancel</button>
+        <button class="btn-primary" @click="selectExplorerPath" :disabled="!explorerPath">Select This Folder</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -419,5 +516,145 @@ button {
   color: #ff4d4f;
   display: flex;
   align-items: center;
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+}
+
+/* Modal and File Explorer Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background-color: var(--bg-color);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-color);
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.explorer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.explorer-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.btn-close:hover {
+  color: var(--text-primary);
+}
+
+.explorer-path-bar {
+  padding: 12px 24px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.path-label {
+  color: var(--text-secondary);
+  font-weight: bold;
+}
+
+.current-path {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.explorer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+  min-height: 200px;
+}
+
+.explorer-loading {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 40px;
+}
+
+.directory-list-view {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.directory-list-item {
+  padding: 10px 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background-color var(--transition-fast);
+}
+
+.directory-list-item:hover {
+  background-color: var(--bg-secondary);
+}
+
+.directory-list-item .icon {
+  font-size: 1.2rem;
+}
+
+.back-item {
+  font-weight: bold;
+  color: var(--text-secondary);
+}
+
+.empty-dir {
+  color: var(--text-secondary);
+  font-style: italic;
+  justify-content: center;
+  cursor: default;
+}
+
+.empty-dir:hover {
+  background-color: transparent;
+}
+
+.explorer-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 </style>
