@@ -1,13 +1,15 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "Starting Backend Server..."
-cd backend
+cd "$SCRIPT_DIR/backend"
 source venv/bin/activate
-uvicorn main:app --port 8080 --reload &
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload &
 BACKEND_PID=$!
 
-cd ../frontend
 echo "Starting Frontend Dev Server..."
-npm run dev &
+cd "$SCRIPT_DIR/frontend"
+npm run dev -- --host &
 FRONTEND_PID=$!
 
 echo "Backend PID: $BACKEND_PID | Frontend PID: $FRONTEND_PID"
