@@ -6,6 +6,10 @@ const props = defineProps({
   video: {
     type: Object,
     required: true
+  },
+  previewAudio: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -24,12 +28,17 @@ const handleMouseEnter = () => {
   isHovered.value = true
   if (videoPlayer.value && props.video.preview_path) {
     videoPlayer.value.currentTime = 0
-    videoPlayer.value.muted = false
-    videoPlayer.value.play().catch(e => {
-      console.log('Autoplay prevented, falling back to muted:', e)
+    if (props.previewAudio) {
+      videoPlayer.value.muted = false
+      videoPlayer.value.play().catch(e => {
+        // Browser blocked unmuted autoplay — fall back to muted
+        videoPlayer.value.muted = true
+        videoPlayer.value.play().catch(() => {})
+      })
+    } else {
       videoPlayer.value.muted = true
-      videoPlayer.value.play().catch(err => console.log('Muted autoplay also prevented:', err))
-    })
+      videoPlayer.value.play().catch(() => {})
+    }
   }
 }
 

@@ -58,8 +58,9 @@ def scan_directories(db: Session, scan_type: str = "all"):
         preview_duration_setting = db.query(Setting).filter(Setting.key == "preview_duration").first()
         preview_duration = float(preview_duration_setting.value) if preview_duration_setting else 2.0
         
-        preview_audio_setting = db.query(Setting).filter(Setting.key == "preview_audio").first()
-        preview_audio = preview_audio_setting.value == "true" if preview_audio_setting else True
+        # Audio is always included in generated previews.
+        # The "preview_audio" setting is frontend-only (controls mute on hover).
+        preview_audio = True
     
         # First pass: count total valid files
         total_files = 0

@@ -5,6 +5,7 @@ import VideoCard from '../components/VideoCard.vue'
 
 const videos = ref([])
 const isLoading = ref(true)
+const previewAudio = ref(true)
 let pollInterval = null
 
 const fetchVideos = async () => {
@@ -17,9 +18,16 @@ const fetchVideos = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Fetch the preview_audio setting
+  try {
+    const settings = await api.getSettings()
+    previewAudio.value = settings.preview_audio !== undefined ? settings.preview_audio : true
+  } catch (e) {
+    console.error("Failed to load settings:", e)
+  }
+  
   fetchVideos()
-  // Poll every 5 seconds to get updates if a scan is running in the background
   pollInterval = setInterval(fetchVideos, 5000)
 })
 
@@ -49,7 +57,8 @@ onUnmounted(() => {
       <VideoCard 
         v-for="video in videos" 
         :key="video.id" 
-        :video="video" 
+        :video="video"
+        :preview-audio="previewAudio"
       />
     </div>
   </div>
