@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+sqlalchemy
+sqlalchemy-utils
+aiofiles
+python-multipart
+# Note: Ensure ffmpeg and ffprobe are installed on your system path.

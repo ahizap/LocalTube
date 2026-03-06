@@ -1,0 +1,27 @@
+# Backend / Python
+backend/venv/
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/.env
+backend/data.db
+backend/cache/
+
+# Frontend / Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# OS and Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.suo
+*.sln
+*.log
