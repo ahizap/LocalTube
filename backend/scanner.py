@@ -67,7 +67,9 @@ def scan_directories(db: Session, scan_type: str = "all", directory: str = ""):
         # First pass: count total valid files
         total_files = 0
         file_list = []
-        for root, _, files in os.walk(directory):
+        def walk_error_handler(err):
+            print(f"Warning: skipping directory due to error: {err}")
+        for root, _, files in os.walk(directory, onerror=walk_error_handler):
             if cancel_scan_flag:
                 break
             for file in files:

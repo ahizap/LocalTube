@@ -51,7 +51,7 @@ onUnmounted(() => {
 })
 
 const getStreamUrl = (id) => {
-  return `http://localhost:8080/api/stream/${id}`
+  return `/api/stream/${id}`
 }
 
 // --- Player Logic ---

@@ -56,7 +56,8 @@ const navigateToPlayer = () => {
 // Convert backend API relative path to absolute URL
 const getMediaUrl = (path) => {
   if (!path) return ''
-  return `http://localhost:8080${path}`
+  // Use relative path — the Vite proxy (dev) or reverse proxy (prod) will forward to backend
+  return path
 }
 
 </script>

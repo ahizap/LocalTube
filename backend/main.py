@@ -150,6 +150,63 @@ def delete_folder(folder: str, db: Session = Depends(get_db)):
     return {"status": "ok", "removed": removed}
 
 import ctypes
+import subprocess
+
+def _list_dir_entries(path):
+    """List directory entries with multiple fallback strategies for FUSE mounts.
+    Returns a list of {"name": str, "path": str} dicts for directories only.
+    """
+    directories = []
+    
+    # Strategy 1: Standard os.listdir + os.path.isdir
+    try:
+        items = os.listdir(path)
+        for item in items:
+            full_path = os.path.join(path, item)
+            try:
+                if os.path.isdir(full_path):
+                    directories.append({"name": item, "path": full_path})
+            except OSError:
+                continue
+        return directories
+    except OSError:
+        pass
+    
+    # Strategy 2: os.scandir (iterator-based, uses d_type from readdir to avoid stat)
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_dir(follow_symlinks=True):
+                        directories.append({"name": entry.name, "path": entry.path})
+                except OSError:
+                    continue
+        return directories
+    except OSError:
+        pass
+
+    # Strategy 3: subprocess ls (uses different buffering, may work on broken FUSE)
+    try:
+        result = subprocess.run(
+            ['ls', '-1a', path],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0:
+            names = [n for n in result.stdout.strip().split('\n') if n and n not in ('.', '..')]
+            for name in names:
+                full_path = os.path.join(path, name)
+                try:
+                    if os.path.isdir(full_path):
+                        directories.append({"name": name, "path": full_path})
+                except OSError:
+                    # On FUSE, we can't even stat — include it anyway as it might be a dir
+                    directories.append({"name": name, "path": full_path})
+            return directories
+    except Exception:
+        pass
+    
+    # All strategies failed
+    return None
 
 @app.get("/api/fs/list")
 def list_directory(path: str = ""):
@@ -167,17 +224,21 @@ def list_directory(path: str = ""):
 
     if not path and not is_windows:
         path = "/"
-        
-    if not os.path.exists(path) or not os.path.isdir(path):
+    
+    # For FUSE mounts, os.path.exists/isdir can also fail — wrap in try
+    try:
+        path_valid = os.path.exists(path) and os.path.isdir(path)
+    except OSError:
+        path_valid = True  # Assume valid and let the listing attempt handle errors
+    
+    if not path_valid:
         return {"error": "Path is not a valid directory"}
         
     try:
-        items = os.listdir(path)
-        directories = []
-        for item in items:
-            full_path = os.path.join(path, item)
-            if os.path.isdir(full_path):
-                directories.append({"name": item, "path": full_path})
+        directories = _list_dir_entries(path)
+        
+        if directories is None:
+            return {"error": f"Cannot read directory (all methods failed): {path}"}
                 
         # Sort directories alphabetically
         directories.sort(key=lambda x: x["name"].lower())
