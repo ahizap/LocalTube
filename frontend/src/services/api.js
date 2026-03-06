@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: 'http://localhost:8080/api', // FastAPI default port modified
+    baseURL: 'http://localhost:8080/api',
 });
 
 export default {
@@ -13,20 +13,24 @@ export default {
         const res = await api.post(`/settings?key=${encodeURIComponent(key)}&value=${encodeURIComponent(JSON.stringify(value))}`);
         return res.data;
     },
-    async triggerScan(type = "all") {
-        const res = await api.post(`/scan?type=${encodeURIComponent(type)}`);
+    async triggerScan(type = "all", directory = "") {
+        const res = await api.post(`/scan?type=${encodeURIComponent(type)}&directory=${encodeURIComponent(directory)}`);
+        return res.data;
+    },
+    async getTasks() {
+        const res = await api.get('/tasks');
+        return res.data;
+    },
+    async cancelTask(taskId) {
+        const res = await api.post(`/tasks/${encodeURIComponent(taskId)}/cancel`);
+        return res.data;
+    },
+    async clearFinishedTasks() {
+        const res = await api.post('/tasks/clear');
         return res.data;
     },
     async listDirectory(path = "") {
         const res = await api.get(`/fs/list?path=${encodeURIComponent(path)}`);
-        return res.data;
-    },
-    async getScanProgress() {
-        const res = await api.get('/scan/progress');
-        return res.data;
-    },
-    async cancelScan() {
-        const res = await api.post('/scan/cancel');
         return res.data;
     },
     async getVideos() {

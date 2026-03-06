@@ -1,18 +1,12 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../services/api'
 
-const directories = ref([])
-const newDirectory = ref('')
 const isLoading = ref(true)
 
-const scanProgress = ref({
-  status: 'idle',
-  total: 0,
-  current: 0,
-  current_file: ''
-})
-let scanPollingInterval = null
+// Task state
+const tasks = ref([])
+let taskPollingInterval = null
 
 // File Explorer State
 const showFileExplorer = ref(false)
@@ -20,14 +14,19 @@ const explorerPath = ref('')
 const explorerParent = ref('')
 const explorerDirectories = ref([])
 const explorerLoading = ref(false)
+const pendingScanType = ref('all')
+const batchFolders = ref([]) // queued folders for batch scanning
 
-const openFileExplorer = async () => {
+const openFileExplorerForScan = async (type) => {
+  pendingScanType.value = type
+  batchFolders.value = []
   showFileExplorer.value = true
   await fetchDirectory(settings.value.default_browse_path || '')
 }
 
 const closeFileExplorer = () => {
   showFileExplorer.value = false
+  batchFolders.value = []
 }
 
 const fetchDirectory = async (path) => {
@@ -48,19 +47,66 @@ const fetchDirectory = async (path) => {
   }
 }
 
-const selectExplorerPath = () => {
-  newDirectory.value = explorerPath.value
-  closeFileExplorer()
-}
-
-const checkScanProgress = async () => {
-  try {
-    const data = await api.getScanProgress()
-    scanProgress.value = data
-  } catch (error) {
-    console.error("Failed to fetch scan progress", error)
+const addToBatch = (path) => {
+  if (!batchFolders.value.includes(path)) {
+    batchFolders.value.push(path)
   }
 }
+
+const removeFromBatch = (path) => {
+  batchFolders.value = batchFolders.value.filter(f => f !== path)
+}
+
+const isFolderInBatch = (path) => {
+  return batchFolders.value.includes(path)
+}
+
+const startBatchScan = async () => {
+  // Use batch folders if any, otherwise use current path
+  const folders = batchFolders.value.length > 0 
+    ? [...batchFolders.value] 
+    : (explorerPath.value ? [explorerPath.value] : [])
+  
+  closeFileExplorer()
+  
+  for (const dir of folders) {
+    try {
+      await api.triggerScan(pendingScanType.value, dir)
+    } catch (e) {
+      console.error(`Failed to start scan for ${dir}:`, e)
+    }
+  }
+  await fetchTasks()
+}
+
+const fetchTasks = async () => {
+  try {
+    tasks.value = await api.getTasks()
+  } catch (error) {
+    console.error("Failed to fetch tasks", error)
+  }
+}
+
+const cancelTask = async (taskId) => {
+  try {
+    await api.cancelTask(taskId)
+    await fetchTasks()
+  } catch (e) {
+    console.error("Failed to cancel task:", e)
+  }
+}
+
+const clearFinishedTasks = async () => {
+  try {
+    await api.clearFinishedTasks()
+    await fetchTasks()
+  } catch (e) {
+    console.error("Failed to clear tasks:", e)
+  }
+}
+
+const activeTasks = computed(() => tasks.value.filter(t => t.status === 'running' || t.status === 'pending'))
+const finishedTasks = computed(() => tasks.value.filter(t => t.status === 'completed' || t.status === 'cancelled' || t.status === 'error'))
 
 const settings = ref({
   thumbnail_percentage: 5.0,
@@ -68,15 +114,14 @@ const settings = ref({
   preview_duration: 2.0,
   preview_audio: true,
   skip_scanned: true,
-  default_browse_path: ''
+  default_browse_path: '',
+  max_concurrent_tasks: 2
 })
 
 onMounted(async () => {
   try {
     const data = await api.getSettings()
-    directories.value = data.directories || []
     
-    // Merge existing settings
     Object.keys(settings.value).forEach(key => {
       if (data[key] !== undefined) {
         settings.value[key] = data[key]
@@ -88,52 +133,39 @@ onMounted(async () => {
     isLoading.value = false
   }
 
-  await checkScanProgress()
-  scanPollingInterval = setInterval(checkScanProgress, 2000)
+  await fetchTasks()
+  taskPollingInterval = setInterval(fetchTasks, 1500)
 })
 
 onUnmounted(() => {
-  if (scanPollingInterval) {
-    clearInterval(scanPollingInterval)
+  if (taskPollingInterval) {
+    clearInterval(taskPollingInterval)
   }
 })
-
-const addDirectory = async () => {
-  if (!newDirectory.value) return
-  
-  if (!directories.value.includes(newDirectory.value)) {
-    const updated = [...directories.value, newDirectory.value];
-    await api.saveSetting('directories', updated)
-    directories.value = updated
-  }
-  newDirectory.value = ''
-}
-
-const removeDirectory = async (dir) => {
-  const updated = directories.value.filter(d => d !== dir)
-  await api.saveSetting('directories', updated)
-  directories.value = updated
-}
 
 const saveSetting = async (key, value) => {
   await api.saveSetting(key, value)
 }
 
-const triggerScan = async (type = 'all') => {
-  try {
-    await api.triggerScan(type)
-    await checkScanProgress()
-  } catch (e) {
-    alert("Failed to start scan: " + e.message)
-  }
+const taskProgress = (task) => {
+  if (task.total === 0) return 0
+  return Math.round((task.current / task.total) * 100)
 }
 
-const cancelScan = async () => {
-  try {
-    await api.cancelScan()
-    await checkScanProgress()
-  } catch (e) {
-    alert("Failed to cancel scan: " + e.message)
+const taskDirName = (task) => {
+  // Show just the last folder name
+  const parts = task.directory.replace(/\\/g, '/').split('/')
+  return parts.filter(p => p).pop() || task.directory
+}
+
+const taskStatusIcon = (status) => {
+  switch (status) {
+    case 'running': return '⚙️'
+    case 'pending': return '⏳'
+    case 'completed': return '✅'
+    case 'cancelled': return '⛔'
+    case 'error': return '❌'
+    default: return '❓'
   }
 }
 
@@ -143,53 +175,54 @@ const cancelScan = async () => {
   <div class="settings-page" v-if="!isLoading">
     <div class="header-row">
       <h1>Settings</h1>
-      
-      <div v-if="scanProgress.status === 'scanning'" class="scan-progress-container">
-        <div class="scan-info">
-          <span>Scanning... {{ scanProgress.current }} / {{ scanProgress.total }} files</span>
-          <span class="scan-file" :title="scanProgress.current_file">{{ scanProgress.current_file.split(/[\\/]/).pop() || 'Loading...' }}</span>
-        </div>
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" :style="{ width: `${scanProgress.total > 0 ? (scanProgress.current / scanProgress.total) * 100 : 0}%` }"></div>
-        </div>
-        <button class="btn-danger" @click="cancelScan">Cancel</button>
-      </div>
-
-      <div v-else-if="scanProgress.status === 'error'" class="scan-error">
-        Error: {{ scanProgress.current_file }}
-        <button class="btn-primary" @click="triggerScan('all')" style="margin-left: 10px;">Retry Scan</button>
-      </div>
-
-      <div v-else class="button-group">
-        <button class="btn-primary" @click="triggerScan('thumbnail')">Scan files & Generate thumbnails</button>
-        <button class="btn-secondary" @click="triggerScan('preview')">Generate Previews</button>
+      <div class="button-group">
+        <button class="btn-primary" @click="openFileExplorerForScan('thumbnail')">Scan files &amp; Generate thumbnails</button>
+        <button class="btn-secondary" @click="openFileExplorerForScan('preview')">Generate Previews</button>
       </div>
     </div>
-    
-    <div class="settings-container">
-      <section class="settings-section">
-        <h2>Directories</h2>
-        <p class="text-secondary">Manage folders where application looks for videos.</p>
-        
-        <div class="directory-list" v-if="directories.length > 0">
-          <div v-for="dir in directories" :key="dir" class="dir-item">
-            <span class="dir-path">{{ dir }}</span>
-            <button class="btn-danger" @click="removeDirectory(dir)">Remove</button>
+
+    <!-- Task Dashboard -->
+    <section class="task-dashboard" v-if="tasks.length > 0">
+      <div class="task-dashboard-header">
+        <h2>Tasks</h2>
+        <button v-if="finishedTasks.length > 0" class="btn-text" @click="clearFinishedTasks">Clear finished</button>
+      </div>
+
+      <div class="task-list">
+        <div v-for="task in tasks" :key="task.id" class="task-card" :class="`task-${task.status}`">
+          <div class="task-card-top">
+            <span class="task-icon">{{ taskStatusIcon(task.status) }}</span>
+            <div class="task-info">
+              <span class="task-dir" :title="task.directory">{{ taskDirName(task) }}</span>
+              <span class="task-type">{{ task.scan_type === 'thumbnail' ? 'Thumbnails' : task.scan_type === 'preview' ? 'Previews' : 'Full Scan' }}</span>
+            </div>
+            <div class="task-stats" v-if="task.status === 'running'">
+              <span>{{ task.current }} / {{ task.total }}</span>
+            </div>
+            <div class="task-stats" v-else-if="task.status === 'completed'">
+              <span>{{ task.total }} files</span>
+            </div>
+            <div class="task-stats" v-else-if="task.status === 'error'">
+              <span class="error-text" :title="task.error_message">Error</span>
+            </div>
+            <button 
+              v-if="task.status === 'running' || task.status === 'pending'" 
+              class="btn-cancel" 
+              @click="cancelTask(task.id)"
+              title="Cancel task"
+            >✕</button>
+          </div>
+          <div class="task-progress-bar" v-if="task.status === 'running'">
+            <div class="task-progress-fill" :style="{ width: taskProgress(task) + '%' }"></div>
+          </div>
+          <div class="task-file" v-if="task.status === 'running' && task.current_file" :title="task.current_file">
+            {{ task.current_file.split(/[\\/]/).pop() }}
           </div>
         </div>
-        
-        <form @submit.prevent="addDirectory" class="add-dir-form">
-          <input 
-            type="text" 
-            v-model="newDirectory" 
-            placeholder="Absolute path to folder (e.g. C:\Videos or /home/user/videos)"
-            class="input-field"
-          />
-          <button type="button" class="btn-secondary" @click="openFileExplorer">Browse...</button>
-          <button type="submit" class="btn-primary">Add Folder</button>
-        </form>
-      </section>
-
+      </div>
+    </section>
+    
+    <div class="settings-container">
       <section class="settings-section">
         <h2>General</h2>
         
@@ -203,7 +236,20 @@ const cancelScan = async () => {
               class="input-field"
               placeholder="e.g. C:\ or /home/user"
             />
-            <span class="hint">The starting path when clicking "Browse...".</span>
+            <span class="hint">The starting path when opening the file explorer.</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label>Max Concurrent Tasks</label>
+          <div class="input-group">
+            <input 
+              type="number" 
+              v-model.number="settings.max_concurrent_tasks" 
+              @change="saveSetting('max_concurrent_tasks', settings.max_concurrent_tasks)"
+              min="1" max="8" class="input-field num-input"
+            />
+            <span class="hint">Maximum number of scan tasks to run simultaneously.</span>
           </div>
         </div>
       </section>
@@ -277,7 +323,7 @@ const cancelScan = async () => {
   <div class="modal-overlay" v-if="showFileExplorer" @click.self="closeFileExplorer">
     <div class="modal-content file-explorer">
       <div class="explorer-header">
-        <h2>Select Folder</h2>
+        <h2>Select Folder{{ pendingScanType === 'thumbnail' ? ' (Thumbnails)' : pendingScanType === 'preview' ? ' (Previews)' : '' }}</h2>
         <button class="btn-close" @click="closeFileExplorer">&times;</button>
       </div>
       
@@ -286,14 +332,35 @@ const cancelScan = async () => {
         <span class="current-path">{{ explorerPath || 'Root / Drives' }}</span>
       </div>
 
+      <!-- Batch queue indicator -->
+      <div class="batch-bar" v-if="batchFolders.length > 0">
+        <span class="batch-label">🗂️ Queued ({{ batchFolders.length }}):</span>
+        <div class="batch-chips">
+          <span v-for="folder in batchFolders" :key="folder" class="batch-chip">
+            {{ folder.replace(/\\/g, '/').split('/').filter(p => p).pop() }}
+            <button class="chip-remove" @click.stop="removeFromBatch(folder)">&times;</button>
+          </span>
+        </div>
+      </div>
+
       <div class="explorer-body">
         <div v-if="explorerLoading" class="explorer-loading">Loading...</div>
         <ul v-else class="directory-list-view">
           <li v-if="explorerPath" class="directory-list-item back-item" @click="fetchDirectory(explorerParent)">
             <span class="icon">📁</span> ..
           </li>
-          <li v-for="dir in explorerDirectories" :key="dir.path" class="directory-list-item" @click="fetchDirectory(dir.path)">
-            <span class="icon">📁</span> {{ dir.name }}
+          <li v-for="dir in explorerDirectories" :key="dir.path" class="directory-list-item">
+            <div class="dir-row-main" @click="fetchDirectory(dir.path)">
+              <span class="icon">📁</span> {{ dir.name }}
+            </div>
+            <button 
+              class="btn-add-batch"
+              :class="{ 'added': isFolderInBatch(dir.path) }"
+              @click.stop="isFolderInBatch(dir.path) ? removeFromBatch(dir.path) : addToBatch(dir.path)"
+              :title="isFolderInBatch(dir.path) ? 'Remove from batch' : 'Add to batch'"
+            >
+              {{ isFolderInBatch(dir.path) ? '✓' : '+' }}
+            </button>
           </li>
           <li v-if="explorerDirectories.length === 0 && explorerPath" class="directory-list-item empty-dir">
             No subdirectories
@@ -303,7 +370,13 @@ const cancelScan = async () => {
 
       <div class="explorer-footer">
         <button class="btn-secondary" @click="closeFileExplorer">Cancel</button>
-        <button class="btn-primary" @click="selectExplorerPath" :disabled="!explorerPath">Select This Folder</button>
+        <button 
+          class="btn-primary" 
+          @click="startBatchScan" 
+          :disabled="!explorerPath && batchFolders.length === 0"
+        >
+          {{ batchFolders.length > 0 ? `Start Scan (${batchFolders.length} folders)` : 'Scan This Folder' }}
+        </button>
       </div>
     </div>
   </div>
@@ -354,33 +427,6 @@ h2 {
   padding: 24px;
   border-radius: var(--border-radius-lg);
   border: 1px solid var(--border-color);
-}
-
-.directory-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.dir-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background-color: var(--bg-color);
-  padding: 10px 16px;
-  border-radius: var(--border-radius-md);
-  border: 1px solid var(--border-color);
-}
-
-.dir-path {
-  font-family: monospace;
-  word-break: break-all;
-}
-
-.add-dir-form {
-  display: flex;
-  gap: 12px;
 }
 
 .input-field {
@@ -438,6 +484,19 @@ button {
   background-color: rgba(229, 9, 20, 0.1);
 }
 
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.btn-text:hover {
+  color: var(--text-primary);
+}
+
 .setting-row {
   margin-bottom: 20px;
 }
@@ -470,60 +529,157 @@ button {
   margin-bottom: 0;
 }
 
-.scan-progress-container {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background-color: var(--bg-secondary);
-  padding: 12px 20px;
-  border-radius: var(--border-radius-md);
-  margin-left: auto;
-  border: 1px solid var(--border-color);
-}
-
-.scan-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.9rem;
-}
-
-.scan-file {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 250px;
-}
-
-.progress-bar-bg {
-  width: 150px;
-  height: 8px;
-  background-color: var(--bg-color);
-  border-radius: 4px;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-}
-
-.progress-bar-fill {
-  height: 100%;
-  background-color: var(--accent-color);
-  transition: width 0.3s ease;
-}
-
-.scan-error {
-  color: #ff4d4f;
-  display: flex;
-  align-items: center;
-}
-
 .button-group {
   display: flex;
   gap: 12px;
 }
 
-/* Modal and File Explorer Styles */
+/* ===== Task Dashboard ===== */
+.task-dashboard {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 32px;
+}
+
+.task-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.task-dashboard-header h2 {
+  margin: 0;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-card {
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  padding: 12px 16px;
+  transition: border-color 0.2s;
+}
+
+.task-card.task-running {
+  border-left: 3px solid var(--accent-color);
+}
+
+.task-card.task-pending {
+  border-left: 3px solid #888;
+  opacity: 0.7;
+}
+
+.task-card.task-completed {
+  border-left: 3px solid #52c41a;
+  opacity: 0.6;
+}
+
+.task-card.task-cancelled {
+  border-left: 3px solid #faad14;
+  opacity: 0.5;
+}
+
+.task-card.task-error {
+  border-left: 3px solid #ff4d4f;
+}
+
+.task-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.task-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.task-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-dir {
+  font-weight: 600;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-type {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.task-stats {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.error-text {
+  color: #ff4d4f;
+}
+
+.btn-cancel {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.btn-cancel:hover {
+  color: #ff4d4f;
+  border-color: #ff4d4f;
+  background-color: rgba(255, 77, 79, 0.1);
+}
+
+.task-progress-bar {
+  height: 4px;
+  background-color: var(--border-color);
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.task-progress-fill {
+  height: 100%;
+  background-color: var(--accent-color);
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.task-file {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Modal and File Explorer ===== */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -598,6 +754,54 @@ button {
   word-break: break-all;
 }
 
+/* Batch bar */
+.batch-bar {
+  padding: 10px 24px;
+  background-color: rgba(229, 9, 20, 0.05);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.batch-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.batch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: var(--accent-color);
+  color: white;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  padding: 0 2px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.chip-remove:hover {
+  color: white;
+}
+
 .explorer-body {
   flex: 1;
   overflow-y: auto;
@@ -632,6 +836,45 @@ button {
 
 .directory-list-item .icon {
   font-size: 1.2rem;
+}
+
+.dir-row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-add-batch {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.btn-add-batch:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.btn-add-batch.added {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
 }
 
 .back-item {

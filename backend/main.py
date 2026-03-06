@@ -6,7 +6,7 @@ from database import engine, Base, get_db
 import models
 import os
 import json
-import scanner
+from task_queue import task_queue
 from fastapi.staticfiles import StaticFiles
 
 # Create DB tables
@@ -36,13 +36,13 @@ def get_settings(db: Session = Depends(get_db)):
     settings = db.query(models.Setting).all()
     # Default settings dict
     settings_dict = {
-        "directories": [],
         "thumbnail_percentage": 5.0,
         "preview_segments": 10,
         "preview_duration": 2.0,
         "preview_audio": True,
         "skip_scanned": True,
-        "default_browse_path": ""
+        "default_browse_path": "",
+        "max_concurrent_tasks": 2
     }
     for s in settings:
         try:
@@ -64,25 +64,31 @@ def save_setting(key: str, value: str, db: Session = Depends(get_db)):
     return {"status": "ok", "key": key}
 
 @app.post("/api/scan")
-def trigger_scan(background_tasks: BackgroundTasks, type: str = "all", db: Session = Depends(get_db)):
-    """Triggers a background scan of all directories. type can be 'all', 'thumbnail', or 'preview'"""
-    if scanner.is_scanning:
-        return {"status": "Scan already in progress"}
-    background_tasks.add_task(scanner.scan_directories, db, type)
-    return {"status": f"Scan '{type}' started in background"}
+def trigger_scan(type: str = "all", directory: str = ""):
+    """Submit a scan task to the queue."""
+    if not directory:
+        return {"status": "error", "message": "No directory specified"}
+    task = task_queue.submit(type, directory)
+    return {"status": "ok", "task_id": task.id}
 
-@app.get("/api/scan/progress")
-def get_scan_progress():
-    """Returns the current progress of the scan."""
-    return scanner.scan_progress
+@app.get("/api/tasks")
+def get_tasks():
+    """Returns all tasks and their progress."""
+    return task_queue.get_all_tasks()
 
-@app.post("/api/scan/cancel")
-def cancel_scan():
-    """Cancels an ongoing scan."""
-    if not scanner.is_scanning:
-        return {"status": "No scan in progress"}
-    scanner.cancel_scan_flag = True
-    return {"status": "Scan cancellation requested"}
+@app.post("/api/tasks/{task_id}/cancel")
+def cancel_task(task_id: str):
+    """Cancel a specific task."""
+    success = task_queue.cancel(task_id)
+    if success:
+        return {"status": "ok", "message": f"Task {task_id} cancellation requested"}
+    return {"status": "error", "message": "Task not found"}
+
+@app.post("/api/tasks/clear")
+def clear_finished_tasks():
+    """Remove completed/cancelled/error tasks."""
+    task_queue.clear_finished()
+    return {"status": "ok"}
 
 import ctypes
 

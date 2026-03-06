@@ -27,11 +27,16 @@ def get_directories(db: Session):
     except:
         return []
 
-def scan_directories(db: Session, scan_type: str = "all"):
+def scan_directories(db: Session, scan_type: str = "all", directory: str = ""):
     global is_scanning, cancel_scan_flag, scan_progress
     
     if is_scanning:
         return # Already scanning
+    
+    if not directory or not os.path.exists(directory):
+        scan_progress["status"] = "error"
+        scan_progress["current_file"] = f"Invalid directory: {directory}"
+        return
         
     is_scanning = True
     cancel_scan_flag = False
@@ -43,8 +48,6 @@ def scan_directories(db: Session, scan_type: str = "all"):
     }
     
     try:
-        directories = get_directories(db)
-        
         # Get settings for processing
         thumbnail_percentage = db.query(Setting).filter(Setting.key == "thumbnail_percentage").first()
         thumb_pct = float(thumbnail_percentage.value) if thumbnail_percentage else 5.0
@@ -59,24 +62,19 @@ def scan_directories(db: Session, scan_type: str = "all"):
         preview_duration = float(preview_duration_setting.value) if preview_duration_setting else 2.0
         
         # Audio is always included in generated previews.
-        # The "preview_audio" setting is frontend-only (controls mute on hover).
         preview_audio = True
     
         # First pass: count total valid files
         total_files = 0
         file_list = []
-        for dir_path in directories:
-            if not os.path.exists(dir_path):
-                continue
-                
-            for root, _, files in os.walk(dir_path):
-                if cancel_scan_flag:
-                    break
-                for file in files:
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in SUPPORTED_EXTENSIONS:
-                        total_files += 1
-                        file_list.append(os.path.join(root, file))
+        for root, _, files in os.walk(directory):
+            if cancel_scan_flag:
+                break
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in SUPPORTED_EXTENSIONS:
+                    total_files += 1
+                    file_list.append(os.path.join(root, file))
         
         if cancel_scan_flag:
             scan_progress["status"] = "cancelled"
