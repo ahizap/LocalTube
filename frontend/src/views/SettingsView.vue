@@ -63,12 +63,12 @@ const isFolderInBatch = (path) => {
 
 const startBatchScan = async () => {
   // Use batch folders if any, otherwise use current path
-  const folders = batchFolders.value.length > 0 
-    ? [...batchFolders.value] 
+  const folders = batchFolders.value.length > 0
+    ? [...batchFolders.value]
     : (explorerPath.value ? [explorerPath.value] : [])
-  
+
   closeFileExplorer()
-  
+
   for (const dir of folders) {
     try {
       await api.triggerScan(pendingScanType.value, dir)
@@ -120,7 +120,7 @@ const settings = ref({
 onMounted(async () => {
   try {
     const data = await api.getSettings()
-    
+
     Object.keys(settings.value).forEach(key => {
       if (data[key] !== undefined) {
         settings.value[key] = data[key]
@@ -171,10 +171,26 @@ const taskStatusIcon = (status) => {
 
 // Library Management
 const libraryFolders = ref([])
+const draggedIndex = ref(null)
+const dragOverIndex = ref(null)
 
 const fetchLibraryFolders = async () => {
   try {
     libraryFolders.value = await api.getLibraryFolders()
+    // Load saved folder order
+    const orderData = await api.getFolderOrder()
+    if (orderData.order && orderData.order.length > 0) {
+      // Sort folders according to saved order
+      const orderMap = {}
+      orderData.order.forEach((path, index) => {
+        orderMap[path] = index
+      })
+      libraryFolders.value.sort((a, b) => {
+        const orderA = orderMap[a.path] ?? 999999
+        const orderB = orderMap[b.path] ?? 999999
+        return orderA - orderB
+      })
+    }
   } catch (e) {
     console.error('Failed to fetch library folders:', e)
   }
@@ -195,6 +211,97 @@ const folderName = (path) => {
   return parts.pop() || path
 }
 
+// Drag and drop handlers
+const onDragStart = (e, index) => {
+  draggedIndex.value = index
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', index)
+  // Add dragging class for visual feedback
+  e.target.classList.add('dragging')
+}
+
+const onDragEnd = (e) => {
+  e.target.classList.remove('dragging')
+  draggedIndex.value = null
+  dragOverIndex.value = null
+}
+
+const onDragOver = (e, index) => {
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  dragOverIndex.value = index
+}
+
+const onDragLeave = (e) => {
+  // Only clear if we're leaving the element entirely
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    dragOverIndex.value = null
+  }
+}
+
+const onDrop = async (e, dropIndex) => {
+  e.preventDefault()
+  
+  if (draggedIndex.value === null || draggedIndex.value === dropIndex) {
+    draggedIndex.value = null
+    dragOverIndex.value = null
+    return
+  }
+  
+  // Reorder the array
+  const item = libraryFolders.value.splice(draggedIndex.value, 1)[0]
+  libraryFolders.value.splice(dropIndex, 0, item)
+  
+  // Save the new order
+  const newOrder = libraryFolders.value.map(f => f.path)
+  try {
+    await api.saveFolderOrder(newOrder)
+    // Show success feedback
+    showOrderSavedMessage()
+  } catch (err) {
+    console.error('Failed to save folder order:', err)
+    alert('Failed to save folder order')
+    // Revert the change
+    await fetchLibraryFolders()
+  }
+  
+  draggedIndex.value = null
+  dragOverIndex.value = null
+}
+
+const showOrderSavedMessage = () => {
+  // Simple toast message
+  const toast = document.createElement('div')
+  toast.className = 'toast-message'
+  toast.textContent = '✓ Folder order saved! Home page will use this order when sorting by Folder.'
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: #52c41a;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    z-index: 10000;
+    animation: fadeIn 0.3s ease;
+  `
+  document.body.appendChild(toast)
+  setTimeout(() => {
+    toast.style.opacity = '0'
+    toast.style.transition = 'opacity 0.3s ease'
+    setTimeout(() => toast.remove(), 300)
+  }, 3000)
+}
+
+const resetFolderOrder = async () => {
+  if (!confirm('Reset folder order to alphabetical?')) return
+  try {
+    await api.saveFolderOrder([])
+    await fetchLibraryFolders()
+  } catch (err) {
+    console.error('Failed to reset folder order:', err)
+  }
+}
 </script>
 
 <template>
@@ -202,7 +309,7 @@ const folderName = (path) => {
     <div class="header-row">
       <h1>Settings</h1>
       <div class="button-group">
-        <button class="btn-primary" @click="openFileExplorerForScan('thumbnail')">Scan files &amp; Generate thumbnails</button>
+        <button class="btn-primary" @click="openFileExplorerForScan('thumbnail')">Scan files & Generate thumbnails</button>
         <button class="btn-secondary" @click="openFileExplorerForScan('preview')">Generate Previews</button>
       </div>
     </div>
@@ -231,9 +338,9 @@ const folderName = (path) => {
             <div class="task-stats" v-else-if="task.status === 'error'">
               <span class="error-text" :title="task.error_message">Error</span>
             </div>
-            <button 
-              v-if="task.status === 'running' || task.status === 'pending'" 
-              class="btn-cancel" 
+            <button
+              v-if="task.status === 'running' || task.status === 'pending'"
+              class="btn-cancel"
               @click="cancelTask(task.id)"
               title="Cancel task"
             >✕</button>
@@ -247,17 +354,17 @@ const folderName = (path) => {
         </div>
       </div>
     </section>
-    
+
     <div class="settings-container">
       <section class="settings-section">
         <h2>General</h2>
-        
+
         <div class="setting-row">
           <label>Default Browse Path</label>
           <div class="input-group">
-            <input 
-              type="text" 
-              v-model="settings.default_browse_path" 
+            <input
+              type="text"
+              v-model="settings.default_browse_path"
               @change="saveSetting('default_browse_path', settings.default_browse_path)"
               class="input-field"
               placeholder="e.g. C:\ or /home/user"
@@ -269,9 +376,9 @@ const folderName = (path) => {
         <div class="setting-row">
           <label>Max Concurrent Tasks</label>
           <div class="input-group">
-            <input 
-              type="number" 
-              v-model.number="settings.max_concurrent_tasks" 
+            <input
+              type="number"
+              v-model.number="settings.max_concurrent_tasks"
               @change="saveSetting('max_concurrent_tasks', settings.max_concurrent_tasks)"
               min="1" max="8" class="input-field num-input"
             />
@@ -283,13 +390,13 @@ const folderName = (path) => {
       <section class="settings-section">
         <h2>Processing Engine</h2>
         <p class="text-secondary">Configure how thumbnails and hover previews are generated.</p>
-        
+
         <div class="setting-row">
           <label>Thumbnail Capture Point (%)</label>
           <div class="input-group">
-            <input 
-              type="number" 
-              v-model.number="settings.thumbnail_percentage" 
+            <input
+              type="number"
+              v-model.number="settings.thumbnail_percentage"
               @change="saveSetting('thumbnail_percentage', settings.thumbnail_percentage)"
               min="0" max="100" class="input-field num-input"
             />
@@ -300,22 +407,22 @@ const folderName = (path) => {
         <div class="setting-row">
           <label>Preview Segments Count</label>
           <div class="input-group">
-            <input 
-              type="number" 
-              v-model.number="settings.preview_segments" 
+            <input
+              type="number"
+              v-model.number="settings.preview_segments"
               @change="saveSetting('preview_segments', settings.preview_segments)"
               min="1" max="50" class="input-field num-input"
             />
             <span class="hint">Number of short clips to extract across the video to build the preview.</span>
           </div>
         </div>
-        
+
         <div class="setting-row">
           <label>Preview Segment Duration (s)</label>
           <div class="input-group">
-            <input 
-              type="number" 
-              v-model.number="settings.preview_duration" 
+            <input
+              type="number"
+              v-model.number="settings.preview_duration"
               @change="saveSetting('preview_duration', settings.preview_duration)"
               min="0.5" max="10" step="0.5" class="input-field num-input"
             />
@@ -325,9 +432,9 @@ const folderName = (path) => {
 
         <div class="setting-row toggle-row">
           <label>Include Audio in Hover Previews</label>
-          <input 
-            type="checkbox" 
-            v-model="settings.preview_audio" 
+          <input
+            type="checkbox"
+            v-model="settings.preview_audio"
             @change="saveSetting('preview_audio', settings.preview_audio)"
           />
         </div>
@@ -337,9 +444,12 @@ const folderName = (path) => {
         <div class="section-header">
           <div>
             <h2>Scanned Library</h2>
-            <p class="text-secondary" style="margin-bottom: 0;">Folders currently in your library. Removing a folder deletes cached thumbnails and previews, not the original files.</p>
+            <p class="text-secondary" style="margin-bottom: 0;">Drag folders to reorder. This order is used when sorting by "Folder" on the home page. Removing a folder deletes cached thumbnails and previews, not the original files.</p>
           </div>
-          <button class="btn-text" @click="fetchLibraryFolders" title="Refresh">🔄 Refresh</button>
+          <div class="section-header-actions">
+            <button class="btn-text" @click="resetFolderOrder" title="Reset to alphabetical order">↺ Reset Order</button>
+            <button class="btn-text" @click="fetchLibraryFolders" title="Refresh">🔄 Refresh</button>
+          </div>
         </div>
 
         <div v-if="libraryFolders.length === 0" class="empty-library">
@@ -347,7 +457,22 @@ const folderName = (path) => {
         </div>
 
         <div v-else class="library-folder-list">
-          <div v-for="folder in libraryFolders" :key="folder.path" class="library-folder-item">
+          <div 
+            v-for="(folder, index) in libraryFolders" 
+            :key="folder.path" 
+            class="library-folder-item"
+            :class="{ 
+              'drag-over': dragOverIndex === index,
+              'dragging': draggedIndex === index 
+            }"
+            draggable="true"
+            @dragstart="onDragStart($event, index)"
+            @dragend="onDragEnd($event)"
+            @dragover="onDragOver($event, index)"
+            @dragleave="onDragLeave($event)"
+            @drop="onDrop($event, index)"
+          >
+            <div class="drag-handle" title="Drag to reorder">⋮⋮</div>
             <div class="library-folder-info">
               <span class="library-folder-name" :title="folder.path">📁 {{ folderName(folder.path) }}</span>
               <span class="library-folder-path">{{ folder.path }}</span>
@@ -372,7 +497,7 @@ const folderName = (path) => {
         <h2>Select Folder{{ pendingScanType === 'thumbnail' ? ' (Thumbnails)' : pendingScanType === 'preview' ? ' (Previews)' : '' }}</h2>
         <button class="btn-close" @click="closeFileExplorer">&times;</button>
       </div>
-      
+
       <div class="explorer-path-bar">
         <span class="path-label">Current:</span>
         <span class="current-path">{{ explorerPath || 'Root / Drives' }}</span>
@@ -399,7 +524,7 @@ const folderName = (path) => {
             <div class="dir-row-main" @click="fetchDirectory(dir.path)">
               <span class="icon">📁</span> {{ dir.name }}
             </div>
-            <button 
+            <button
               class="btn-add-batch"
               :class="{ 'added': isFolderInBatch(dir.path) }"
               @click.stop="isFolderInBatch(dir.path) ? removeFromBatch(dir.path) : addToBatch(dir.path)"
@@ -416,9 +541,9 @@ const folderName = (path) => {
 
       <div class="explorer-footer">
         <button class="btn-secondary" @click="closeFileExplorer">Cancel</button>
-        <button 
-          class="btn-primary" 
-          @click="startBatchScan" 
+        <button
+          class="btn-primary"
+          @click="startBatchScan"
           :disabled="!explorerPath && batchFolders.length === 0"
         >
           {{ batchFolders.length > 0 ? `Start Scan (${batchFolders.length} folders)` : 'Scan This Folder' }}
@@ -946,6 +1071,7 @@ button {
   justify-content: flex-end;
   gap: 12px;
 }
+
 /* ===== Library Management ===== */
 .section-header {
   display: flex;
@@ -956,6 +1082,11 @@ button {
 
 .section-header h2 {
   margin: 0;
+}
+
+.section-header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .empty-library {
@@ -979,11 +1110,35 @@ button {
   padding: 12px 16px;
   border-radius: var(--border-radius-md);
   border: 1px solid var(--border-color);
-  transition: border-color 0.15s;
+  transition: all 0.15s;
+  cursor: grab;
 }
 
 .library-folder-item:hover {
   border-color: var(--text-secondary);
+}
+
+.library-folder-item.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.library-folder-item.drag-over {
+  border-color: var(--accent-color);
+  border-style: dashed;
+  background-color: rgba(229, 9, 20, 0.05);
+}
+
+.drag-handle {
+  color: var(--text-secondary);
+  cursor: grab;
+  padding-right: 12px;
+  font-size: 1.2rem;
+  user-select: none;
+}
+
+.drag-handle:hover {
+  color: var(--text-primary);
 }
 
 .library-folder-info {

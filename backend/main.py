@@ -109,6 +109,38 @@ def get_library_folders(db: Session = Depends(get_db)):
     folders = sorted(folder_map.values(), key=lambda x: x["path"])
     return folders
 
+@app.get("/api/library/folder_order")
+def get_folder_order(db: Session = Depends(get_db)):
+    """Get the custom folder display order."""
+    folder_order_setting = db.query(models.Setting).filter(models.Setting.key == "folder_order").first()
+    if folder_order_setting:
+        try:
+            return {"order": json.loads(folder_order_setting.value)}
+        except:
+            return {"order": []}
+    return {"order": []}
+
+from pydantic import BaseModel
+
+class FolderOrderRequest(BaseModel):
+    order: list
+
+@app.post("/api/library/folder_order")
+def save_folder_order(request: FolderOrderRequest, db: Session = Depends(get_db)):
+    """Save the custom folder display order.
+    
+    Args:
+        request: JSON body with 'order' field containing list of folder paths
+    """
+    folder_order_setting = db.query(models.Setting).filter(models.Setting.key == "folder_order").first()
+    if folder_order_setting:
+        folder_order_setting.value = json.dumps(request.order)
+    else:
+        folder_order_setting = models.Setting(key="folder_order", value=json.dumps(request.order))
+        db.add(folder_order_setting)
+    db.commit()
+    return {"status": "ok"}
+
 @app.delete("/api/library/videos/{video_id}")
 def delete_video(video_id: int, db: Session = Depends(get_db)):
     """Delete a single video from the library and remove its cached files."""
@@ -259,8 +291,97 @@ def list_directory(path: str = ""):
         return {"error": str(e)}
 
 @app.get("/api/videos")
-def get_videos(db: Session = Depends(get_db), skip: int = 0, limit: int = 100):
-    videos = db.query(models.Video).order_by(models.Video.created_at.desc()).offset(skip).limit(limit).all()
+def get_videos(
+    db: Session = Depends(get_db),
+    page: int = 1,
+    per_page: int = 50,
+    sort_by: str = "created_at",
+    sort_order: str = "desc"
+):
+    """Get paginated videos with sorting support.
+    
+    Args:
+        page: Page number (1-indexed)
+        per_page: Videos per page (max 1000)
+        sort_by: Sort field - 'name', 'created_at', or 'folder'
+        sort_order: 'asc' or 'desc'
+    
+    Returns:
+        Dict with videos, total count, and pagination info
+    """
+    # Validate and clamp parameters
+    if page < 1:
+        page = 1
+    if per_page < 1:
+        per_page = 50
+    if per_page > 1000:
+        per_page = 1000
+    
+    valid_sort_fields = ["name", "created_at", "folder"]
+    if sort_by not in valid_sort_fields:
+        sort_by = "created_at"
+    
+    if sort_order not in ["asc", "desc"]:
+        sort_order = "desc"
+    
+    # Get folder order from settings for folder-based sorting
+    folder_order = {}
+    if sort_by == "folder":
+        folder_order_setting = db.query(models.Setting).filter(models.Setting.key == "folder_order").first()
+        if folder_order_setting:
+            try:
+                # folder_order is stored as a list, convert to dict for O(1) lookup
+                order_list = json.loads(folder_order_setting.value)
+                folder_order = {path: idx for idx, path in enumerate(order_list)}
+            except:
+                folder_order = {}
+    
+    # Base query
+    query = db.query(models.Video)
+    
+    # Get total count before pagination
+    total = query.count()
+    
+    # Apply sorting
+    if sort_by == "name":
+        # For name sorting, we need to fetch all and sort by basename in Python
+        # since SQLite can't easily sort by just the filename part
+        all_videos = query.all()
+        all_videos.sort(key=lambda v: os.path.basename(v.path).lower())
+        if sort_order == "desc":
+            all_videos = all_videos[::-1]
+        
+        # Apply pagination manually
+        total = len(all_videos)
+        skip = (page - 1) * per_page
+        videos = all_videos[skip:skip + per_page]
+    elif sort_by == "folder":
+        # For folder sorting, we need to fetch all and sort in Python
+        # since we can't easily sort by a JSON setting in SQLite
+        all_videos = query.all()
+        
+        def get_folder_priority(video):
+            folder = os.path.dirname(video.path)
+            return folder_order.get(folder, 999999)
+        
+        all_videos.sort(key=lambda v: (get_folder_priority(v), os.path.basename(v.path)))
+        if sort_order == "desc":
+            all_videos = all_videos[::-1]
+        
+        # Apply pagination manually
+        total = len(all_videos)
+        skip = (page - 1) * per_page
+        videos = all_videos[skip:skip + per_page]
+    else:  # created_at
+        if sort_order == "asc":
+            query = query.order_by(models.Video.created_at.asc())
+        else:
+            query = query.order_by(models.Video.created_at.desc())
+        
+        # Apply pagination
+        skip = (page - 1) * per_page
+        videos = query.offset(skip).limit(per_page).all()
+    
     # Replace absolute system paths with API served paths for the frontend
     result = []
     for v in videos:
@@ -268,14 +389,24 @@ def get_videos(db: Session = Depends(get_db), skip: int = 0, limit: int = 100):
             "id": v.id,
             "duration": v.duration,
             "created_at": v.created_at,
-            "title": os.path.basename(v.path)
+            "title": os.path.basename(v.path),
+            "folder": os.path.dirname(v.path)
         }
         if v.thumbnail_path:
             v_dict["thumbnail_path"] = f"/cache/{os.path.basename(v.thumbnail_path)}"
         if v.preview_path:
             v_dict["preview_path"] = f"/cache/{os.path.basename(v.preview_path)}"
         result.append(v_dict)
-    return result
+    
+    total_pages = (total + per_page - 1) // per_page if per_page > 0 else 1
+    
+    return {
+        "videos": result,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages
+    }
 
 @app.get("/api/videos/{video_id}")
 def get_video_details(video_id: int, db: Session = Depends(get_db)):

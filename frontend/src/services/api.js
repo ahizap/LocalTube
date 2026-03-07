@@ -45,9 +45,17 @@ export default {
         const res = await api.delete(`/library/folders?folder=${encodeURIComponent(folderPath)}`);
         return res.data;
     },
-    async getVideos() {
-        const res = await api.get('/videos');
-        return res.data;
+    async getVideos(page = 1, perPage = 50, sortBy = 'created_at', sortOrder = 'desc') {
+      const res = await api.get(`/videos?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`);
+      return res.data;
+    },
+    async getFolderOrder() {
+      const res = await api.get('/library/folder_order');
+      return res.data;
+    },
+    async saveFolderOrder(order) {
+      const res = await api.post('/library/folder_order', { order });
+      return res.data;
     },
     async getVideoDetails(id) {
         const res = await api.get(`/videos/${id}`);
