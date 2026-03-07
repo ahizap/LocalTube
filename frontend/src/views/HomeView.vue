@@ -42,17 +42,21 @@ const showingTo = computed(() => {
   return Math.min(currentPage.value * perPage.value, totalVideos.value)
 })
 
-// Initialize from URL params
+// Initialize from URL params (only use URL if explicitly provided, otherwise keep localStorage values)
 const initFromUrl = () => {
-  const page = parseInt(route.query.page) || 1
-  const per = parseInt(route.query.per_page) || 50
-  const sort = route.query.sort_by || 'created_at'
-  const order = route.query.sort_order || 'desc'
-  
-  currentPage.value = page
-  perPage.value = per
-  sortBy.value = sort
-  sortOrder.value = order
+  // Only update from URL if the param is explicitly present
+  if (route.query.page) {
+    currentPage.value = parseInt(route.query.page) || 1
+  }
+  if (route.query.per_page) {
+    perPage.value = parseInt(route.query.per_page) || 50
+  }
+  if (route.query.sort_by) {
+    sortBy.value = route.query.sort_by
+  }
+  if (route.query.sort_order) {
+    sortOrder.value = route.query.sort_order
+  }
 }
 
 // Update URL with current state
@@ -126,10 +130,10 @@ const loadPreferences = () => {
   if (saved) {
     try {
       const prefs = JSON.parse(saved)
-      // Only apply if not overridden by URL
-      if (!route.query.per_page) perPage.value = prefs.perPage || 50
-      if (!route.query.sort_by) sortBy.value = prefs.sortBy || 'created_at'
-      if (!route.query.sort_order) sortOrder.value = prefs.sortOrder || 'desc'
+      // Apply saved preferences (will be used if URL doesn't override)
+      perPage.value = prefs.perPage || 50
+      sortBy.value = prefs.sortBy || 'created_at'
+      sortOrder.value = prefs.sortOrder || 'desc'
     } catch (e) {
       console.error('Failed to load preferences:', e)
     }
@@ -142,12 +146,15 @@ watch([perPage, sortBy, sortOrder], () => {
 })
 
 onMounted(async () => {
-  // Load saved preferences
+  // Load saved preferences first
   loadPreferences()
-  
-  // Initialize from URL
+
+  // Then initialize from URL (URL params override localStorage)
   initFromUrl()
-  
+
+  // Update URL to reflect current state (for bookmarking)
+  updateUrl()
+
   // Fetch the preview_audio setting
   try {
     const settings = await api.getSettings()
