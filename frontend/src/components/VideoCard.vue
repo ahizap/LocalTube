@@ -1,6 +1,5 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
 
 const props = defineProps({
   video: {
@@ -13,7 +12,6 @@ const props = defineProps({
   }
 })
 
-const router = useRouter()
 const isHovered = ref(false)
 const videoPlayer = ref(null)
 
@@ -49,10 +47,6 @@ const handleMouseLeave = () => {
   }
 }
 
-const navigateToPlayer = () => {
-  router.push(`/video/${props.video.id}`)
-}
-
 // Convert backend API relative path to absolute URL
 const getMediaUrl = (path) => {
   if (!path) return ''
@@ -63,11 +57,11 @@ const getMediaUrl = (path) => {
 </script>
 
 <template>
-  <div 
-    class="video-card" 
-    @mouseenter="handleMouseEnter" 
+  <a
+    :href="`/video/${video.id}`"
+    class="video-card"
+    @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
-    @click="navigateToPlayer"
   >
     <div class="thumbnail-container">
       <!-- Static Thumbnail -->
@@ -98,7 +92,7 @@ const getMediaUrl = (path) => {
       </h3>
       <p class="video-meta">Added {{ new Date(video.created_at).toLocaleDateString() }}</p>
     </div>
-  </div>
+  </a>
 </template>
 
 <style scoped>
@@ -108,6 +102,8 @@ const getMediaUrl = (path) => {
   gap: 12px;
   cursor: pointer;
   transition: transform var(--transition-fast);
+  text-decoration: none;
+  color: inherit;
 }
 
 .video-card:hover {
