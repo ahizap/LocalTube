@@ -22,6 +22,10 @@ const totalPages = ref(1)
 const sortBy = ref('created_at')
 const sortOrder = ref('desc')
 
+// Search state
+const searchQuery = ref('')
+let searchTimeout = null
+
 // Per page options
 const perPageOptions = [20, 50, 100, 200, 500, 1000]
 
@@ -57,6 +61,9 @@ const initFromUrl = () => {
   if (route.query.sort_order) {
     sortOrder.value = route.query.sort_order
   }
+  if (route.query.search) {
+    searchQuery.value = route.query.search
+  }
 }
 
 // Update URL with current state
@@ -67,13 +74,16 @@ const updateUrl = () => {
     sort_by: sortBy.value,
     sort_order: sortOrder.value
   }
+  if (searchQuery.value) {
+    query.search = searchQuery.value
+  }
   router.replace({ query })
 }
 
-// Fetch videos with current pagination and sort
+// Fetch videos with current pagination, sort, and search
 const fetchVideos = async () => {
   try {
-    const data = await api.getVideos(currentPage.value, perPage.value, sortBy.value, sortOrder.value)
+    const data = await api.getVideos(currentPage.value, perPage.value, sortBy.value, sortOrder.value, searchQuery.value)
     videos.value = data.videos || []
     totalVideos.value = data.total || 0
     totalPages.value = data.total_pages || 1
@@ -113,6 +123,28 @@ const onPerPageChange = () => {
 const toggleSortOrder = () => {
   sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
   onSortChange()
+}
+
+// Handle search input with debounce
+const onSearchInput = () => {
+  // Clear existing timeout
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+  }
+  // Debounce search - wait 300ms after user stops typing
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1 // Reset to first page when searching
+    updateUrl()
+    fetchVideos()
+  }, 300)
+}
+
+// Clear search
+const clearSearch = () => {
+  searchQuery.value = ''
+  currentPage.value = 1
+  updateUrl()
+  fetchVideos()
 }
 
 // Save preferences to localStorage
@@ -169,6 +201,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval)
+  if (searchTimeout) clearTimeout(searchTimeout)
 })
 </script>
 
@@ -178,7 +211,27 @@ onUnmounted(() => {
       <h1>Library</h1>
       <span class="video-count" v-if="totalVideos > 0">{{ totalVideos }} videos</span>
     </div>
-
+  
+    <!-- Search Bar -->
+    <div class="search-bar">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input
+          type="text"
+          v-model="searchQuery"
+          @input="onSearchInput"
+          placeholder="Search videos by filename..."
+          class="search-input"
+        />
+        <button
+          v-if="searchQuery"
+          class="clear-search-btn"
+          @click="clearSearch"
+          title="Clear search"
+        >✕</button>
+      </div>
+    </div>
+  
     <!-- Top Pagination & Sort Controls -->
     <div class="controls-bar" v-if="!isLoading && videos.length > 0">
       <div class="sort-controls">
@@ -297,6 +350,64 @@ h1 {
 .video-count {
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+/* Search Bar */
+.search-bar {
+  margin-bottom: 24px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 500px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  font-size: 1rem;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 12px 40px;
+  border-radius: var(--border-radius-md);
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.search-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.clear-search-btn {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  border-radius: 50%;
+  transition: all 0.15s;
+}
+
+.clear-search-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--border-color);
 }
 
 .controls-bar {

@@ -8,6 +8,7 @@ const router = useRouter()
 const video = ref(null)
 const isLoading = ref(true)
 const error = ref(null)
+const playbackError = ref(null)
 
 // Video Player State
 const videoElement = ref(null)
@@ -28,7 +29,7 @@ onMounted(async () => {
   try {
     const data = await api.getVideoDetails(id)
     if (data.error) {
-       error.value = data.error
+      error.value = data.error
     } else {
       video.value = data
       // Initialize hide controls timeout
@@ -40,7 +41,7 @@ onMounted(async () => {
   } finally {
     isLoading.value = false
   }
-  
+
   // Listen for fullscreen changes globally (for ESC key exits, etc)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 })
@@ -80,6 +81,33 @@ const onLoadedMetadata = () => {
   }
 }
 
+const onVideoError = (e) => {
+  const videoEl = videoElement.value
+  if (!videoEl) return
+  
+  let errorMsg = 'Unable to play this video.'
+  
+  if (videoEl.error) {
+    switch (videoEl.error.code) {
+      case MediaError.MEDIA_ERR_ABORTED:
+        errorMsg = 'Video playback was aborted.'
+        break
+      case MediaError.MEDIA_ERR_NETWORK:
+        errorMsg = 'A network error occurred while loading the video.'
+        break
+      case MediaError.MEDIA_ERR_DECODE:
+        errorMsg = 'Video decoding failed. The format may not be supported.'
+        break
+      case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        errorMsg = 'Video format not supported by your browser.'
+        break
+    }
+  }
+  
+  playbackError.value = errorMsg
+  console.error('Video playback error:', videoEl.error)
+}
+
 const seek = (e) => {
   const rect = e.currentTarget.getBoundingClientRect()
   const pos = (e.clientX - rect.left) / rect.width
@@ -112,7 +140,7 @@ const setVolume = (e) => {
 
 const toggleFullscreen = () => {
   if (!playerWrapper.value) return
-  
+
   if (!document.fullscreenElement) {
     playerWrapper.value.requestFullscreen().catch(err => {
       console.error(`Error attempting to enable fullscreen: ${err.message}`)
@@ -132,7 +160,7 @@ const formatTime = (timeInSeconds) => {
   const secs = Math.floor(timeInSeconds % 60)
   const hrs = Math.floor(maxMins / 60)
   const mins = maxMins % 60
-  
+
   if (hrs > 0) {
     return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
@@ -172,17 +200,17 @@ const goBack = () => {
 
     <div v-if="isLoading" class="loading">Loading player...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    
+
     <div v-else-if="video" class="player-container">
-      <div 
-        class="video-wrapper" 
+      <div
+        class="video-wrapper"
         ref="playerWrapper"
         @mousemove="handleMouseMove"
         @mouseleave="showControls = false"
       >
-        <video 
+        <video
           ref="videoElement"
-          autoplay 
+          autoplay
           :src="getStreamUrl(video.id)"
           class="main-player"
           @click="togglePlay"
@@ -190,42 +218,54 @@ const goBack = () => {
           @pause="onPause"
           @timeupdate="onTimeUpdate"
           @loadedmetadata="onLoadedMetadata"
+          @error="onVideoError"
         >
           Your browser does not support HTML video.
         </video>
-        
+
+        <!-- Playback Error Overlay -->
+        <div v-if="playbackError" class="error-overlay">
+          <div class="error-content">
+            <span class="error-icon">⚠️</span>
+            <h3>Playback Error</h3>
+            <p>{{ playbackError }}</p>
+            <p class="error-hint">This video may be in a format not supported by your browser (e.g., MKV, AVI, WMV).</p>
+            <button class="btn-retry" @click="playbackError = null; videoElement?.load()">Try Again</button>
+          </div>
+        </div>
+
         <!-- Center Play/Pause Overlay Component -->
         <div class="center-play-overlay" v-show="!isPlaying && duration > 0" @click="togglePlay">
-           <div class="play-icon-large">▶</div>
+          <div class="play-icon-large">▶</div>
         </div>
 
         <!-- Custom Controls Bar -->
         <div class="controls-overlay" :class="{ 'visible': showControls || !isPlaying }">
-          
+
           <!-- Progress Bar -->
           <div class="progress-bar-container" @click="seek">
             <div class="progress-bar-bg">
-              <div 
-                class="progress-bar-fill" 
+              <div
+                class="progress-bar-fill"
                 :style="{ width: `${(currentTime / duration) * 100 || 0}%` }"
               ></div>
             </div>
           </div>
-          
+
           <div class="controls-main-row">
             <div class="controls-left">
               <button class="control-btn" @click="togglePlay" :title="isPlaying ? 'Pause' : 'Play'">
                 <span class="icon">{{ isPlaying ? '⏸' : '▶' }}</span>
               </button>
-              
+
               <div class="volume-container">
                 <button class="control-btn" @click="toggleMute" :title="isMuted ? 'Unmute' : 'Mute'">
                   <span class="icon">{{ isMuted || volume === 0 ? '🔇' : (volume < 0.5 ? '🔉' : '🔊') }}</span>
                 </button>
-                <input 
-                  type="range" 
-                  min="0" max="1" step="0.05" 
-                  :value="volume" 
+                <input
+                  type="range"
+                  min="0" max="1" step="0.05"
+                  :value="volume"
                   @input="setVolume"
                   class="volume-slider"
                 >
@@ -233,7 +273,7 @@ const goBack = () => {
 
               <span class="time-display">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</span>
             </div>
-            
+
             <div class="controls-right">
               <button class="control-btn" @click="toggleFullscreen" :title="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
                 <span class="icon">{{ isFullscreen ? '🗗' : '🖵' }}</span>
@@ -242,7 +282,7 @@ const goBack = () => {
           </div>
         </div>
       </div>
-      
+
       <div class="video-details">
         <h1 class="video-title">{{ video.title }}</h1>
         <div class="meta-row">
@@ -474,5 +514,63 @@ const goBack = () => {
 
 .error {
   color: var(--accent-color);
+}
+
+/* Error Overlay */
+.error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 30;
+}
+
+.error-content {
+  text-align: center;
+  padding: 40px;
+  max-width: 400px;
+}
+
+.error-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.error-content h3 {
+  color: var(--accent-color);
+  font-size: 1.5rem;
+  margin-bottom: 12px;
+}
+
+.error-content p {
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.error-hint {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.btn-retry {
+  margin-top: 20px;
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: var(--border-radius-md);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-retry:hover {
+  background-color: var(--accent-hover);
 }
 </style>

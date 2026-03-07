@@ -296,16 +296,18 @@ def get_videos(
     page: int = 1,
     per_page: int = 50,
     sort_by: str = "created_at",
-    sort_order: str = "desc"
+    sort_order: str = "desc",
+    search: str = ""
 ):
-    """Get paginated videos with sorting support.
-    
+    """Get paginated videos with sorting and search support.
+
     Args:
         page: Page number (1-indexed)
         per_page: Videos per page (max 1000)
         sort_by: Sort field - 'name', 'created_at', or 'folder'
         sort_order: 'asc' or 'desc'
-    
+        search: Search query to filter by filename
+
     Returns:
         Dict with videos, total count, and pagination info
     """
@@ -316,14 +318,14 @@ def get_videos(
         per_page = 50
     if per_page > 1000:
         per_page = 1000
-    
+
     valid_sort_fields = ["name", "created_at", "folder"]
     if sort_by not in valid_sort_fields:
         sort_by = "created_at"
-    
+
     if sort_order not in ["asc", "desc"]:
         sort_order = "desc"
-    
+
     # Get folder order from settings for folder-based sorting
     folder_order = {}
     if sort_by == "folder":
@@ -335,11 +337,14 @@ def get_videos(
                 folder_order = {path: idx for idx, path in enumerate(order_list)}
             except:
                 folder_order = {}
-    
+
     # Base query
     query = db.query(models.Video)
-    
-    # Get total count before pagination
+
+    # Apply search filter if provided
+    if search:
+        search_term = f"%{search.lower()}%"
+        query = query.filter(models.Video.path.ilike(search_term))
     total = query.count()
     
     # Apply sorting
