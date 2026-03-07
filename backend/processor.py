@@ -133,7 +133,7 @@ def process_video_file(db: Session, video_path: str, thumbnail_percentage: float
     
     # Generate static assets caching filenames based on absolute path
     file_hash = _get_hash(video_path)
-    cache_dir = os.path.join(os.getcwd(), "cache")
+    cache_dir = os.path.join(os.getcwd(), "data", "cache")
     os.makedirs(cache_dir, exist_ok=True)
     
     thumb_path = os.path.join(cache_dir, f"{file_hash}_thumb.jpg")

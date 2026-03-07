@@ -12,11 +12,11 @@ from fastapi.staticfiles import StaticFiles
 # Create DB tables
 Base.metadata.create_all(bind=engine)
 
-os.makedirs("cache", exist_ok=True)
+os.makedirs("data/cache", exist_ok=True)
 
 app = FastAPI(title="Tube Site API")
 
-app.mount("/cache", StaticFiles(directory="cache"), name="cache")
+app.mount("/cache", StaticFiles(directory="data/cache"), name="cache")
 
 # Allow frontend to access the API
 app.add_middleware(
