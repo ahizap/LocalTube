@@ -364,12 +364,17 @@ def get_videos(
         # For folder sorting, we need to fetch all and sort in Python
         # since we can't easily sort by a JSON setting in SQLite
         all_videos = query.all()
-        
+    
         def get_folder_priority(video):
             folder = os.path.dirname(video.path)
-            return folder_order.get(folder, 999999)
-        
-        all_videos.sort(key=lambda v: (get_folder_priority(v), os.path.basename(v.path)))
+            # If custom folder order is set, use it; otherwise use alphabetical folder name
+            if folder_order:
+                return folder_order.get(folder, 999999)
+            else:
+                # Default: sort alphabetically by folder path
+                return folder
+    
+        all_videos.sort(key=lambda v: (get_folder_priority(v), os.path.basename(v.path).lower()))
         if sort_order == "desc":
             all_videos = all_videos[::-1]
         
