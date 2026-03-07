@@ -189,55 +189,77 @@ def _list_dir_entries(path):
     Returns a list of {"name": str, "path": str} dicts for directories only.
     """
     directories = []
-    
+
     # Strategy 1: Standard os.listdir + os.path.isdir
     try:
         items = os.listdir(path)
+        print(f"[DEBUG] Strategy 1 (os.listdir) returned {len(items)} items for path: {path}")
         for item in items:
             full_path = os.path.join(path, item)
             try:
                 if os.path.isdir(full_path):
                     directories.append({"name": item, "path": full_path})
+                    print(f"[DEBUG] Strategy 1 found directory: '{item}' (repr: {repr(item)})")
             except OSError:
                 continue
+        print(f"[DEBUG] Strategy 1 total directories found: {len(directories)}")
+        # Check for duplicates
+        names = [d["name"] for d in directories]
+        if len(names) != len(set(names)):
+            print(f"[DEBUG] WARNING: Strategy 1 has duplicates! Names: {names}")
         return directories
     except OSError:
         pass
     
     # Strategy 2: os.scandir (iterator-based, uses d_type from readdir to avoid stat)
     try:
+        print(f"[DEBUG] Strategy 1 failed, trying Strategy 2 (os.scandir) for path: {path}")
         with os.scandir(path) as it:
             for entry in it:
                 try:
                     if entry.is_dir(follow_symlinks=True):
                         directories.append({"name": entry.name, "path": entry.path})
+                        print(f"[DEBUG] Strategy 2 found directory: '{entry.name}' (repr: {repr(entry.name)})")
                 except OSError:
                     continue
+        print(f"[DEBUG] Strategy 2 total directories found: {len(directories)}")
+        names = [d["name"] for d in directories]
+        if len(names) != len(set(names)):
+            print(f"[DEBUG] WARNING: Strategy 2 has duplicates! Names: {names}")
         return directories
     except OSError:
         pass
 
     # Strategy 3: subprocess ls (uses different buffering, may work on broken FUSE)
     try:
+        print(f"[DEBUG] Strategy 2 failed, trying Strategy 3 (subprocess ls) for path: {path}")
         result = subprocess.run(
             ['ls', '-1a', path],
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0:
             names = [n for n in result.stdout.strip().split('\n') if n and n not in ('.', '..')]
+            print(f"[DEBUG] Strategy 3 ls returned {len(names)} entries: {names}")
             for name in names:
                 full_path = os.path.join(path, name)
                 try:
                     if os.path.isdir(full_path):
                         directories.append({"name": name, "path": full_path})
+                        print(f"[DEBUG] Strategy 3 found directory: '{name}' (repr: {repr(name)})")
                 except OSError:
                     # On FUSE, we can't even stat — include it anyway as it might be a dir
                     directories.append({"name": name, "path": full_path})
-            return directories
+                    print(f"[DEBUG] Strategy 3 included (no stat): '{name}' (repr: {repr(name)})")
+        print(f"[DEBUG] Strategy 3 total directories found: {len(directories)}")
+        names = [d["name"] for d in directories]
+        if len(names) != len(set(names)):
+            print(f"[DEBUG] WARNING: Strategy 3 has duplicates! Names: {names}")
+        return directories
     except Exception:
         pass
-    
+
     # All strategies failed
+    print(f"[DEBUG] All strategies failed for path: {path}")
     return None
 
 @app.get("/api/fs/list")
@@ -268,10 +290,13 @@ def list_directory(path: str = ""):
         
     try:
         directories = _list_dir_entries(path)
-        
+
         if directories is None:
             return {"error": f"Cannot read directory (all methods failed): {path}"}
-                
+
+        print(f"[DEBUG] list_directory: Returning {len(directories)} directories for path: {path}")
+        print(f"[DEBUG] list_directory: Directory names: {[d['name'] for d in directories]}")
+
         # Sort directories alphabetically
         directories.sort(key=lambda x: x["name"].lower())
         
