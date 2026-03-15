@@ -174,6 +174,11 @@ const libraryFolders = ref([])
 const draggedIndex = ref(null)
 const dragOverIndex = ref(null)
 
+// Computed: count of partially scanned folders
+const partialFoldersCount = computed(() => {
+  return libraryFolders.value.filter(f => f.partially_scanned).length
+})
+
 const fetchLibraryFolders = async () => {
   try {
     libraryFolders.value = await api.getLibraryFolders()
@@ -194,6 +199,28 @@ const fetchLibraryFolders = async () => {
   } catch (e) {
     console.error('Failed to fetch library folders:', e)
   }
+}
+
+// Rescan all partially scanned folders
+const rescanPartialFolders = async () => {
+  const partialFolders = libraryFolders.value.filter(f => f.partially_scanned)
+  if (partialFolders.length === 0) {
+    alert('No partially scanned folders to rescan.')
+    return
+  }
+  
+  if (!confirm(`Rescan ${partialFolders.length} partially scanned folder(s)?\n\nAlready processed videos will be skipped automatically.`)) {
+    return
+  }
+  
+  for (const folder of partialFolders) {
+    try {
+      await api.triggerScan('all', folder.path)
+    } catch (e) {
+      console.error(`Failed to start scan for ${folder.path}:`, e)
+    }
+  }
+  await fetchTasks()
 }
 
 const removeFolder = async (folderPath) => {
@@ -449,8 +476,16 @@ const resetFolderOrder = async () => {
           <div class="section-header-actions">
             <button class="btn-text" @click="resetFolderOrder" title="Reset to alphabetical order">↺ Reset Order</button>
             <button class="btn-text" @click="fetchLibraryFolders" title="Refresh">🔄 Refresh</button>
-          </div>
-        </div>
+            <button
+              v-if="partialFoldersCount > 0"
+              class="btn-text btn-partial"
+              @click="rescanPartialFolders"
+              title="Rescan all partially scanned folders"
+            >
+              ⚠️ Rescan {{ partialFoldersCount }} Partial{{ partialFoldersCount > 1 ? 's' : '' }}
+            </button>
+            </div>
+            </div>
 
         <div v-if="libraryFolders.length === 0" class="empty-library">
           No folders scanned yet. Use the scan buttons above to add videos.
@@ -480,6 +515,8 @@ const resetFolderOrder = async () => {
                 <span>{{ folder.count }} videos</span>
                 <span v-if="folder.has_thumbs">• {{ folder.has_thumbs }} thumbs</span>
                 <span v-if="folder.has_previews">• {{ folder.has_previews }} previews</span>
+                <span v-if="folder.partially_scanned" class="status-badge partial">⚠️ Partial</span>
+                <span v-else-if="folder.has_thumbs && folder.has_previews" class="status-badge complete">✓ Complete</span>
               </div>
             </div>
             <button class="btn-remove" @click="removeFolder(folder.path)" title="Remove folder from library">🗑️ Remove</button>
@@ -666,6 +703,34 @@ button {
 
 .btn-text:hover {
   color: var(--text-primary);
+}
+
+.btn-partial {
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+.btn-partial:hover {
+  color: #fbbf24;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+.status-badge.partial {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.status-badge.complete {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
 }
 
 .setting-row {

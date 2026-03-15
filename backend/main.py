@@ -105,9 +105,44 @@ def get_library_folders(db: Session = Depends(get_db)):
             folder_map[folder]["has_thumbs"] += 1
         if v.preview_path:
             folder_map[folder]["has_previews"] += 1
-    
+
+    # Add partially_scanned flag to each folder
+    for folder in folder_map:
+        f = folder_map[folder]
+        processed = f["has_thumbs"] + f["has_previews"]
+        # A folder is partially scanned if some videos have been processed but not all
+        # (i.e., at least one video has some processing, but not all videos have both thumb and preview)
+        f["partially_scanned"] = f["count"] > 0 and processed < f["count"] * 2
+
     folders = sorted(folder_map.values(), key=lambda x: x["path"])
     return folders
+
+
+@app.get("/api/library/partial-folders")
+def get_partial_folders(db: Session = Depends(get_db)):
+    """Returns only folders that are partially scanned (some videos processed, some not)."""
+    videos = db.query(models.Video).all()
+    folder_map = {}
+    for v in videos:
+        folder = os.path.dirname(v.path)
+        if folder not in folder_map:
+            folder_map[folder] = {"path": folder, "count": 0, "has_thumbs": 0, "has_previews": 0}
+        folder_map[folder]["count"] += 1
+        if v.thumbnail_path:
+            folder_map[folder]["has_thumbs"] += 1
+        if v.preview_path:
+            folder_map[folder]["has_previews"] += 1
+
+    # Filter to only partially scanned folders
+    partial_folders = []
+    for folder in folder_map:
+        f = folder_map[folder]
+        processed = f["has_thumbs"] + f["has_previews"]
+        if f["count"] > 0 and processed < f["count"] * 2:
+            f["partially_scanned"] = True
+            partial_folders.append(f)
+
+    return sorted(partial_folders, key=lambda x: x["path"])
 
 @app.get("/api/library/folder_order")
 def get_folder_order(db: Session = Depends(get_db)):
