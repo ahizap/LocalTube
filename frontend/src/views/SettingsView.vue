@@ -516,7 +516,7 @@ const resetFolderOrder = async () => {
                 <span v-if="folder.has_thumbs">• {{ folder.has_thumbs }} thumbs</span>
                 <span v-if="folder.has_previews">• {{ folder.has_previews }} previews</span>
                 <span v-if="folder.partially_scanned" class="status-badge partial">⚠️ Partial</span>
-                <span v-else-if="folder.has_thumbs && folder.has_previews" class="status-badge complete">✓ Complete</span>
+                <span v-else-if="folder.has_thumbs" class="status-badge complete">✓ Complete</span>
               </div>
             </div>
             <button class="btn-remove" @click="removeFolder(folder.path)" title="Remove folder from library">🗑️ Remove</button>
