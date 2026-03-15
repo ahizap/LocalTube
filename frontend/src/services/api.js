@@ -34,12 +34,8 @@ export default {
         return res.data;
     },
     async getLibraryFolders() {
-      const res = await api.get('/library/folders');
-      return res.data;
-    },
-    async getPartialFolders() {
-      const res = await api.get('/library/partial-folders');
-      return res.data;
+        const res = await api.get('/library/folders');
+        return res.data;
     },
     async deleteVideo(videoId) {
         const res = await api.delete(`/library/videos/${videoId}`);
