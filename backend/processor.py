@@ -2,18 +2,83 @@ import subprocess
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
+def get_ffmpeg_path():
+    """Find ffmpeg binary in bundled paths or system PATH."""
+    candidates = []
+    # 1. Check if running inside PyInstaller bundle
+    if getattr(sys, 'frozen', False):
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        candidates.append(os.path.join(base_dir, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
+        candidates.append(os.path.join(base_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
+
+    # 2. Check local project bin/ and current directories
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(current_dir, ".."))
+
+    candidates.extend([
+        os.path.join(current_dir, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"),
+        os.path.join(current_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg"),
+        os.path.join(project_root, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"),
+        os.path.join(project_root, "ffmpeg.exe" if os.name == "nt" else "ffmpeg"),
+    ])
+
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+
+    # 3. Check system PATH
+    sys_path = shutil.which("ffmpeg")
+    if sys_path:
+        return sys_path
+
+    return "ffmpeg"
+
+def get_ffprobe_path():
+    """Find ffprobe binary in bundled paths or system PATH."""
+    candidates = []
+    # 1. Check if running inside PyInstaller bundle
+    if getattr(sys, 'frozen', False):
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        candidates.append(os.path.join(base_dir, "bin", "ffprobe.exe" if os.name == "nt" else "ffprobe"))
+        candidates.append(os.path.join(base_dir, "ffprobe.exe" if os.name == "nt" else "ffprobe"))
+
+    # 2. Check local project bin/ and current directories
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(current_dir, ".."))
+
+    candidates.extend([
+        os.path.join(current_dir, "bin", "ffprobe.exe" if os.name == "nt" else "ffprobe"),
+        os.path.join(current_dir, "ffprobe.exe" if os.name == "nt" else "ffprobe"),
+        os.path.join(project_root, "bin", "ffprobe.exe" if os.name == "nt" else "ffprobe"),
+        os.path.join(project_root, "ffprobe.exe" if os.name == "nt" else "ffprobe"),
+    ])
+
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+
+    # 3. Check system PATH
+    sys_path = shutil.which("ffprobe")
+    if sys_path:
+        return sys_path
+
+    return "ffprobe"
+
 def check_ffmpeg_installed():
-    """Verify ffmpeg and ffprobe are available in the system PATH."""
-    has_ffmpeg = shutil.which("ffmpeg") is not None
-    has_ffprobe = shutil.which("ffprobe") is not None
+    """Verify ffmpeg and ffprobe are available either bundled or in the system PATH."""
+    ffmpeg_bin = get_ffmpeg_path()
+    ffprobe_bin = get_ffprobe_path()
+    has_ffmpeg = os.path.isfile(ffmpeg_bin) or (shutil.which(ffmpeg_bin) is not None)
+    has_ffprobe = os.path.isfile(ffprobe_bin) or (shutil.which(ffprobe_bin) is not None)
     return has_ffmpeg and has_ffprobe
 
 def get_video_metadata(video_path: str):
     """Uses ffprobe to extract video duration."""
     cmd = [
-        "ffprobe",
+        get_ffprobe_path(),
         "-v", "quiet",
         "-print_format", "json",
         "-show_format",
@@ -44,7 +109,7 @@ def generate_thumbnail(video_path: str, output_path: str, duration: float, perce
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     cmd = [
-        "ffmpeg",
+        get_ffmpeg_path(),
         "-y",               # Overwrite existing files
         "-ss", str(target_time), # Fast seek to timestamp (before -i for accuracy, but we use -noaccurate_seek for speed)
         "-noaccurate_seek", # Allow faster seeking at cost of slight timestamp inaccuracy
@@ -98,7 +163,7 @@ def generate_preview(video_path: str, output_path: str, duration: float,
         
         # Build ffmpeg command using concat demuxer
         cmd = [
-            "ffmpeg",
+            get_ffmpeg_path(),
             "-y",
             "-f", "concat",
             "-safe", "0",  # Allow unsafe file paths

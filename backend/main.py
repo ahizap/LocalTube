@@ -1,13 +1,15 @@
 from fastapi import FastAPI, Depends, BackgroundTasks, File, UploadFile, Request
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 import models
 import os
+import sys
 import json
 from task_queue import task_queue
 from fastapi.staticfiles import StaticFiles
+from processor import check_ffmpeg_installed
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
@@ -29,7 +31,10 @@ app.add_middleware(
 
 @app.get("/api/health")
 def read_root():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "ffmpeg": check_ffmpeg_installed()
+    }
 
 @app.get("/api/settings")
 def get_settings(db: Session = Depends(get_db)):
@@ -482,3 +487,46 @@ def stream_video(video_id: int, request: Request, db: Session = Depends(get_db))
         
     # Full request
     return FileResponse(file_path, media_type=content_type)
+
+
+# === SPA Static Files & Fallback Routing ===
+def find_frontend_dist():
+    candidates = []
+    if getattr(sys, 'frozen', False):
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        candidates.append(os.path.join(base_dir, "dist"))
+        candidates.append(os.path.join(base_dir, "frontend", "dist"))
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.extend([
+        os.path.join(current_dir, "dist"),
+        os.path.join(current_dir, "..", "frontend", "dist"),
+        os.path.join(os.getcwd(), "frontend", "dist"),
+        os.path.join(os.getcwd(), "dist"),
+    ])
+    for c in candidates:
+        if os.path.isdir(c) and os.path.exists(os.path.join(c, "index.html")):
+            return os.path.abspath(c)
+    return None
+
+frontend_dist = find_frontend_dist()
+if frontend_dist:
+    assets_dir = os.path.join(frontend_dist, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="spa-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Do not intercept API or cache routes
+        if full_path.startswith("api/") or full_path.startswith("cache/"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+            
+        file_path = os.path.join(frontend_dist, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+            
+        index_file = os.path.join(frontend_dist, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+            
+        return JSONResponse(status_code=404, content={"detail": "Frontend index.html not found"})

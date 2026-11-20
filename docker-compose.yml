@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  localtube:
+    build: .
+    image: localtube:latest
+    container_name: localtube
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persistent application database and thumbnail cache
+      - ./data:/app/backend/data
+      # Mount your video library directory here (read-only recommended)
+      # Format: - /host/path/to/videos:/videos:ro
+      # Example on Windows:
+      # - D:/Videos:/videos:ro
+      # Example on Linux:
+      # - /home/user/Videos:/videos:ro

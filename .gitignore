@@ -7,6 +7,12 @@ backend/.env
 # Backend data folder (database, cache, etc.)
 backend/data/
 backend/cache/
+data/
+cache/
+bin/
+dist/
+build/
+*.spec
 
 # Frontend / Node
 frontend/node_modules/
