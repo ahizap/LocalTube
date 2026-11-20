@@ -96,8 +96,20 @@ jobs:
         run: |
           pyinstaller --noconfirm --onedir --console `
             --name "LocalTube" `
+            --paths "backend" `
+            --collect-all "fastapi" `
+            --collect-all "starlette" `
+            --collect-all "uvicorn" `
+            --hidden-import "multipart" `
+            --hidden-import "aiofiles" `
+            --hidden-import "sqlalchemy" `
+            --hidden-import "main" `
+            --hidden-import "database" `
+            --hidden-import "models" `
+            --hidden-import "processor" `
+            --hidden-import "scanner" `
+            --hidden-import "task_queue" `
             --add-data "frontend/dist;frontend/dist" `
-            --add-data "backend;backend" `
             --add-binary "bin/ffmpeg.exe;bin" `
             --add-binary "bin/ffprobe.exe;bin" `
             run_app.py
@@ -107,8 +119,20 @@ jobs:
         run: |
           pyinstaller --noconfirm --onedir --console \
             --name "LocalTube" \
+            --paths "backend" \
+            --collect-all "fastapi" \
+            --collect-all "starlette" \
+            --collect-all "uvicorn" \
+            --hidden-import "multipart" \
+            --hidden-import "aiofiles" \
+            --hidden-import "sqlalchemy" \
+            --hidden-import "main" \
+            --hidden-import "database" \
+            --hidden-import "models" \
+            --hidden-import "processor" \
+            --hidden-import "scanner" \
+            --hidden-import "task_queue" \
             --add-data "frontend/dist:frontend/dist" \
-            --add-data "backend:backend" \
             --add-binary "bin/ffmpeg:bin" \
             --add-binary "bin/ffprobe:bin" \
             run_app.py

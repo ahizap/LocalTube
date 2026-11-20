@@ -493,9 +493,12 @@ def stream_video(video_id: int, request: Request, db: Session = Depends(get_db))
 def find_frontend_dist():
     candidates = []
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        base_dir = getattr(sys, '_MEIPASS', exe_dir)
         candidates.append(os.path.join(base_dir, "dist"))
         candidates.append(os.path.join(base_dir, "frontend", "dist"))
+        candidates.append(os.path.join(exe_dir, "dist"))
+        candidates.append(os.path.join(exe_dir, "frontend", "dist"))
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     candidates.extend([

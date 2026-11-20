@@ -10,9 +10,12 @@ def get_ffmpeg_path():
     candidates = []
     # 1. Check if running inside PyInstaller bundle
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        base_dir = getattr(sys, '_MEIPASS', exe_dir)
         candidates.append(os.path.join(base_dir, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
         candidates.append(os.path.join(base_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
+        candidates.append(os.path.join(exe_dir, "bin", "ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
+        candidates.append(os.path.join(exe_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
 
     # 2. Check local project bin/ and current directories
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,9 +44,12 @@ def get_ffprobe_path():
     candidates = []
     # 1. Check if running inside PyInstaller bundle
     if getattr(sys, 'frozen', False):
-        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        base_dir = getattr(sys, '_MEIPASS', exe_dir)
         candidates.append(os.path.join(base_dir, "bin", "ffprobe.exe" if os.name == "nt" else "ffprobe"))
         candidates.append(os.path.join(base_dir, "ffprobe.exe" if os.name == "nt" else "ffprobe"))
+        candidates.append(os.path.join(exe_dir, "bin", "ffprobe.exe" if os.name == "nt" else "ffprobe"))
+        candidates.append(os.path.join(exe_dir, "ffprobe.exe" if os.name == "nt" else "ffprobe"))
 
     # 2. Check local project bin/ and current directories
     current_dir = os.path.dirname(os.path.abspath(__file__))
