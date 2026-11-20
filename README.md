@@ -110,4 +110,4 @@ npm run dev
 
 ## 📄 License
 
-MIT License. Free to use, modify, and distribute.
+AGPL-3.0 license
